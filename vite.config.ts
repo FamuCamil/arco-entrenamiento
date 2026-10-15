@@ -11,6 +11,24 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registration lives in src/main.ts (virtual:pwa-register), which reloads the page
+      // silently once an updated service worker takes control.
+      injectRegister: false,
+      workbox: {
+        // Icons and the manifest are precached via includeAssets, the manifest icons and the
+        // plugin itself. Do NOT add png/svg/webmanifest here: duplicate entries would get
+        // conflicting revisions and fail the build.
+        globPatterns: ['**/*.{js,css,html}'],
+        // Hash routing: every navigation hits the scope root, served from the precache offline.
+        navigateFallback: 'index.html',
+        cleanupOutdatedCaches: true,
+        // Load-bearing: vite-plugin-pwa only sets these for autoUpdate when injectRegister is
+        // 'auto' or null, so with injectRegister: false they must be explicit.
+        skipWaiting: true,
+        clientsClaim: true,
+        // Deliberately no runtimeCaching: nothing is cached at runtime, so no cross-origin
+        // responses ever end up in a cache.
+      },
       // Icons live in public/ and are generated from public/favicon.svg (`npm run icons`).
       // Manifest icons are precached automatically; the other icons are listed here.
       includeAssets: ['favicon.svg', 'favicon-32x32.png', 'apple-touch-icon-180x180.png'],
