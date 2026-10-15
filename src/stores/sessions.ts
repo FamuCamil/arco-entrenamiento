@@ -81,7 +81,20 @@ export const useSessionsStore = defineStore('sessions', () => {
     if (!end || !Number.isInteger(arrow) || arrow < 0 || arrow >= end.length) return
     if (key !== null && !getTargetFace(session.faceId)?.zones.some((z) => z.key === key)) return
     end[arrow] = key
-    // TODO(CU-06): sort the end with sortEnd when it is complete.
+    // TODO(CU-06): sort the end with sortEnd when it is complete. A null write never completes
+    // an end, so deleting an arrow never sorts: the gap stays where the arrow was.
+    session.updatedAt = Date.now()
+  }
+
+  /** Empties every arrow of one end. No-op if the session is closed or the target is invalid. */
+  function deleteEnd(sessionId: string, archerId: string, row: number): void {
+    const session = getSession(sessionId)
+    if (!session || session.closed) return
+    const archer = session.archers.find((a) => a.id === archerId)
+    if (!archer || !Number.isInteger(row)) return
+    const end = archer.ends[row]
+    if (!end) return
+    for (let i = 0; i < end.length; i++) end[i] = null
     session.updatedAt = Date.now()
   }
 
@@ -93,5 +106,5 @@ export const useSessionsStore = defineStore('sessions', () => {
     { deep: true },
   )
 
-  return { sessions, profileName, getSession, getArcher, createSession, setArrow }
+  return { sessions, profileName, getSession, getArcher, createSession, setArrow, deleteEnd }
 })

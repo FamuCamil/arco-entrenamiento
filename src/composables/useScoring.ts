@@ -37,6 +37,37 @@ export function useScoring(sessionId: string, archerId: string) {
     selected.value = nextCell(selected.value, archer.value.ends)
   }
 
+  /** True when the selected cell holds a value that «Borrar flecha» can clear. */
+  const canDeleteArrow = computed(() => {
+    if (isLocked.value || !archer.value) return false
+    const { row, col } = selected.value
+    return (archer.value.ends[row]?.[col] ?? null) !== null
+  })
+
+  /** True when the selected cell's end holds at least one value that «Borrar tanda» can clear. */
+  const canDeleteEnd = computed(() => {
+    if (isLocked.value || !archer.value) return false
+    return archer.value.ends[selected.value.row]?.some((v) => v !== null) ?? false
+  })
+
+  /** Empties the selected cell (CU-05). The selection stays so the right value can be scored. */
+  function deleteArrow(): void {
+    if (!canDeleteArrow.value) return
+    const { row, col } = selected.value
+    store.setArrow(sessionId, archerId, row, col, null)
+  }
+
+  /**
+   * Empties the selected cell's end and selects its first arrow (CU-05).
+   * Confirmation is the caller's job.
+   */
+  function deleteEnd(): void {
+    if (!canDeleteEnd.value) return
+    const { row } = selected.value
+    store.deleteEnd(sessionId, archerId, row)
+    selected.value = { row, col: 0 }
+  }
+
   /**
    * Element of the selected row, set by the grid. Each new element is scrolled into view,
    * so the active row stays visible on entry and whenever the row changes.
@@ -46,5 +77,18 @@ export function useScoring(sessionId: string, archerId: string) {
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' })
   })
 
-  return { session, archer, face, selected, isLocked, select, score, activeRowRef }
+  return {
+    session,
+    archer,
+    face,
+    selected,
+    isLocked,
+    select,
+    score,
+    canDeleteArrow,
+    canDeleteEnd,
+    deleteArrow,
+    deleteEnd,
+    activeRowRef,
+  }
 }

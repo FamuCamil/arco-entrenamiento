@@ -347,3 +347,203 @@ test('corrupt storage: the app starts empty without breaking', async ({ page }) 
   )
   expect(problems).toEqual([])
 })
+
+/** Seeds row 0 = X 9 8 and row 1 = 7 6 _, so entry selects the gap at row 1, arrow 3. */
+async function seedForDelete(page: Page, closed = false): Promise<string> {
+  const ends = Array.from({ length: 20 }, (_, r) =>
+    r === 0 ? ['X', '9', '8'] : r === 1 ? ['7', '6', null] : [null, null, null],
+  )
+  return seed(page, { ends, closed })
+}
+
+async function storedEnds(page: Page): Promise<(string | null)[][]> {
+  return page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key)!).sessions[0].archers[0].ends,
+    STORAGE_KEY,
+  )
+}
+
+test('deletes an arrow, cancels and confirms «Borrar tanda», and keeps it after reload', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  // Any native confirm would fail the test: the app must use its own dialog.
+  page.on('dialog', (d) => {
+    problems.push(`native dialog: ${d.type()}`)
+    void d.dismiss()
+  })
+  const url = await seedForDelete(page)
+  await page.goto(`./${url}`)
+  expect(page.viewportSize()?.width).toBe(375)
+  await expectSelected(page, 1, 2)
+
+  const deleteArrow = page.getByTestId('delete-arrow')
+  const deleteEnd = page.getByTestId('delete-end')
+  const dialog = page.getByRole('dialog')
+
+  // 1. Borrar flecha: no dialog, the cell empties and the selection stays.
+  await cell(page, 0, 1).click()
+  await expectSelected(page, 0, 1)
+  await deleteArrow.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(cell(page, 0, 1)).toHaveText('')
+  await expectSelected(page, 0, 1)
+  await expect(deleteArrow).toHaveAttribute('aria-disabled', 'true')
+  expect((await storedEnds(page))[0]).toEqual(['X', null, '8'])
+
+  // 2. Borrar tanda → Cancelar: nothing changes and focus returns to «Borrar tanda».
+  await cell(page, 1, 0).click()
+  await expectSelected(page, 1, 0)
+  await deleteEnd.click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toHaveAttribute('aria-modal', 'true')
+  await expect(dialog.getByRole('heading', { name: '¿Borrar la tanda?' })).toBeVisible()
+  await expect(dialog).toContainText(
+    'Se borrarán todas las flechas de la serie 1, tanda 2. No se puede deshacer.',
+  )
+  await expect(dialog.getByRole('button')).toHaveText(['Cancelar', 'Borrar'])
+  await expect(dialog.getByRole('button', { name: 'Cancelar', exact: true })).toBeFocused()
+  await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+  await expectSelected(page, 1, 0)
+  await expect(deleteEnd).toBeFocused()
+
+  // 3. Borrar tanda → Escape: also a cancel.
+  await deleteEnd.click()
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+  await expectSelected(page, 1, 0)
+  await expect(deleteEnd).toBeFocused()
+
+  // 4. Borrar tanda → Borrar: the end empties and its first arrow is selected.
+  await cell(page, 1, 1).click()
+  await deleteEnd.click()
+  await dialog.getByRole('button', { name: 'Borrar', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['', '', ''])
+  await expectSelected(page, 1, 0)
+  await expect(deleteEnd).toHaveAttribute('aria-disabled', 'true')
+  await expect(deleteEnd).toBeFocused()
+  const ends = await storedEnds(page)
+  expect(ends[0]).toEqual(['X', null, '8'])
+  expect(ends[1]).toEqual([null, null, null])
+
+  // 5. Reload: the deletions persist and no dialog is open.
+  await page.reload()
+  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '', '8'])
+  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['', '', ''])
+  await expect(dialog).toHaveCount(0)
+  await expectSelected(page, 0, 1)
+
+  expect(problems).toEqual([])
+})
+
+test('delete buttons are disabled when there is nothing to delete', async ({ page }) => {
+  const url = await seedForDelete(page)
+  await page.goto(`./${url}`)
+  const deleteArrow = page.getByTestId('delete-arrow')
+  const deleteEnd = page.getByTestId('delete-end')
+  // Gap in a non-empty end.
+  await expectSelected(page, 1, 2)
+  await expect(deleteArrow).toHaveAttribute('aria-disabled', 'true')
+  await expect(deleteEnd).not.toHaveAttribute('aria-disabled', /.*/)
+  // Empty end.
+  await cell(page, 4, 1).click()
+  await expect(deleteArrow).toHaveAttribute('aria-disabled', 'true')
+  await expect(deleteEnd).toHaveAttribute('aria-disabled', 'true')
+  // Playwright treats aria-disabled as disabled; force the tap to prove it is ignored.
+  await expect(deleteEnd).toBeDisabled()
+  await deleteEnd.click({ force: true })
+  await deleteArrow.click({ force: true })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect((await storedEnds(page))[1]).toEqual(['7', '6', null])
+  // Filled cell.
+  await cell(page, 0, 0).click()
+  await expect(deleteArrow).not.toHaveAttribute('aria-disabled', /.*/)
+})
+
+test('delete actions and dialog fit 375 px with ≥48 px buttons, labels and visible focus', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  const url = await seedForDelete(page)
+  await page.goto(`./${url}`)
+  const viewport = page.viewportSize()!
+
+  const group = page.getByRole('group', { name: 'Acciones de borrado' })
+  await expect(group.getByRole('button')).toHaveText(['Borrar flecha', 'Borrar tanda'])
+  await expect(page.getByRole('button', { name: 'Borrar flecha seleccionada' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Borrar tanda seleccionada' })).toBeVisible()
+
+  async function expectTarget(locator: ReturnType<Page['getByTestId']>) {
+    const box = (await locator.boundingBox())!
+    expect(box.width).toBeGreaterThanOrEqual(48)
+    expect(box.height).toBeGreaterThanOrEqual(48)
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+  }
+  await expectTarget(page.getByTestId('delete-arrow'))
+  await expectTarget(page.getByTestId('delete-end'))
+
+  // Keyboard focus ring on the action buttons.
+  await page.getByTestId('delete-arrow').focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('delete-end')).toBeFocused()
+  await expect(page.getByTestId('delete-end')).toHaveCSS('outline-style', 'solid')
+
+  // Open the dialog from the keyboard: Enter on the focused button.
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expectTarget(page.getByTestId('confirm-cancel'))
+  await expectTarget(page.getByTestId('confirm-accept'))
+  // Bottom-anchored for one-handed use: the panel sits in the lower half of the screen.
+  const panel = (await dialog.boundingBox())!
+  expect(panel.y).toBeGreaterThan(viewport.height / 2)
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
+  expect(overflow).toBe(0)
+
+  // Focus trap: Tab and Shift+Tab cycle between the two dialog buttons only.
+  await expect(page.getByTestId('confirm-cancel')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('confirm-accept')).toBeFocused()
+  await expect(page.getByTestId('confirm-accept')).toHaveCSS('outline-style', 'solid')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('confirm-cancel')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByTestId('confirm-accept')).toBeFocused()
+
+  // A click on the panel padding leaves focus on body; Escape still cancels.
+  await dialog.click({ position: { x: 4, y: 4 } })
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('delete-end')).toBeFocused()
+  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+
+  // Backdrop tap cancels too.
+  await page.getByTestId('delete-end').click()
+  await expect(dialog).toBeVisible()
+  await page.getByTestId('confirm-backdrop').click({ position: { x: 10, y: 10 } })
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+
+  expect(problems).toEqual([])
+})
+
+test('a closed session shows no delete actions and keeps its arrows', async ({ page }) => {
+  const problems = trackConsole(page)
+  const url = await seedForDelete(page, true)
+  await page.goto(`./${url}`)
+  await expect(page.getByRole('status')).toHaveText('Sesión finalizada — solo lectura')
+  await expect(page.getByRole('group', { name: 'Acciones de borrado' })).toHaveCount(0)
+  await expect(page.getByTestId('delete-arrow')).toHaveCount(0)
+  await expect(page.getByTestId('delete-end')).toHaveCount(0)
+  expect((await storedEnds(page))[0]).toEqual(['X', '9', '8'])
+  expect(problems).toEqual([])
+})

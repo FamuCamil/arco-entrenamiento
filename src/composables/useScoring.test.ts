@@ -359,3 +359,227 @@ describe('activeRowRef', () => {
     await expect(nextTick()).resolves.toBeUndefined()
   })
 })
+
+describe('deleteArrow', () => {
+  const partial = (): End[] => [
+    ['X', '9', '8'],
+    ['7', null, null],
+    [null, null, null],
+  ]
+
+  it('clears the selected cell, keeps the selection and persists', async () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    await nextTick()
+    s.select(0, 1)
+    s.deleteArrow()
+    expect(s.archer.value!.ends[0]).toEqual(['X', null, '8'])
+    expect(s.selected.value).toEqual({ row: 0, col: 1 })
+    await nextTick()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', null, '8'])
+  })
+
+  it('the next key press writes the cleared cell', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 0)
+    s.deleteArrow()
+    s.score('10')
+    expect(s.archer.value!.ends[0]).toEqual(['10', '9', '8'])
+  })
+
+  it('leaves a gap in a complete end and does not reorder it (CU-06 pitfall)', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 1)
+    s.deleteArrow()
+    expect(s.archer.value!.ends[0]).toEqual(['X', null, '8'])
+    expect(s.archer.value!.ends[1]).toEqual(['7', null, null])
+  })
+
+  it('is a no-op on an empty cell (updatedAt unchanged)', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(1, 2)
+    s.deleteArrow()
+    expect(s.archer.value!.ends).toEqual(partial())
+    expect(s.session.value!.updatedAt).toBe(1)
+    expect(s.selected.value).toEqual({ row: 1, col: 2 })
+  })
+
+  it('is a no-op when the session is closed', () => {
+    seed(partial(), { closed: true })
+    const s = useScoring('s1', 'a1')
+    s.selected.value = { row: 0, col: 0 }
+    s.deleteArrow()
+    expect(s.archer.value!.ends).toEqual(partial())
+    expect(s.session.value!.updatedAt).toBe(1)
+  })
+
+  it('is a no-op once the session becomes closed', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 0)
+    useSessionsStore().getSession('s1')!.closed = true
+    s.deleteArrow()
+    expect(s.archer.value!.ends).toEqual(partial())
+  })
+
+  it('is a no-op for an unknown archer or session', () => {
+    seed(partial())
+    expect(() => useScoring('s1', 'nope').deleteArrow()).not.toThrow()
+    expect(() => useScoring('nope', 'a1').deleteArrow()).not.toThrow()
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends).toEqual(partial())
+  })
+})
+
+describe('deleteEnd', () => {
+  const partial = (): End[] => [
+    ['X', '9', '8'],
+    ['7', null, '5'],
+    ['4', null, null],
+  ]
+
+  it('empties the selected end, selects its first arrow and persists', async () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    await nextTick()
+    s.select(0, 2)
+    s.deleteEnd()
+    expect(s.archer.value!.ends).toEqual([
+      [null, null, null],
+      ['7', null, '5'],
+      ['4', null, null],
+    ])
+    expect(s.selected.value).toEqual({ row: 0, col: 0 })
+    await nextTick()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(stored.sessions[0].archers[0].ends[0]).toEqual([null, null, null])
+  })
+
+  it('works from a middle column of a partial end and leaves other ends untouched', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(1, 1)
+    s.deleteEnd()
+    expect(s.archer.value!.ends).toEqual([
+      ['X', '9', '8'],
+      [null, null, null],
+      ['4', null, null],
+    ])
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+  })
+
+  it('the next key press writes the first arrow of the emptied end', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(2, 2)
+    s.deleteEnd()
+    s.score('6')
+    expect(s.archer.value!.ends[2]).toEqual(['6', null, null])
+    expect(s.selected.value).toEqual({ row: 2, col: 1 })
+  })
+
+  it('is a no-op on an empty end (selection unchanged)', () => {
+    seed([
+      ['X', '9', '8'],
+      [null, null, null],
+      [null, null, null],
+    ])
+    const s = useScoring('s1', 'a1')
+    s.select(2, 2)
+    s.deleteEnd()
+    expect(s.selected.value).toEqual({ row: 2, col: 2 })
+    expect(s.archer.value!.ends[0]).toEqual(['X', '9', '8'])
+    expect(s.session.value!.updatedAt).toBe(1)
+  })
+
+  it('is a no-op when the session is closed (selection unchanged)', () => {
+    seed(partial(), { closed: true })
+    const s = useScoring('s1', 'a1')
+    // select() is locked too, so set the selection directly.
+    s.selected.value = { row: 0, col: 1 }
+    s.deleteEnd()
+    expect(s.archer.value!.ends).toEqual(partial())
+    expect(s.selected.value).toEqual({ row: 0, col: 1 })
+    expect(s.session.value!.updatedAt).toBe(1)
+  })
+
+  it('is a no-op once the session becomes closed', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 2)
+    useSessionsStore().getSession('s1')!.closed = true
+    s.deleteEnd()
+    expect(s.archer.value!.ends).toEqual(partial())
+    expect(s.selected.value).toEqual({ row: 0, col: 2 })
+  })
+
+  it('is a no-op for an unknown archer or session', () => {
+    seed(partial())
+    const a = useScoring('s1', 'nope')
+    a.deleteEnd()
+    expect(a.selected.value).toEqual({ row: 0, col: 0 })
+    expect(() => useScoring('nope', 'a1').deleteEnd()).not.toThrow()
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends).toEqual(partial())
+  })
+})
+
+describe('canDeleteArrow / canDeleteEnd', () => {
+  const partial = (): End[] => [
+    ['X', null, null],
+    [null, null, null],
+    [null, null, null],
+  ]
+
+  it('reflect the selected cell and its end', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 0)
+    expect(s.canDeleteArrow.value).toBe(true)
+    expect(s.canDeleteEnd.value).toBe(true)
+    s.select(0, 2)
+    expect(s.canDeleteArrow.value).toBe(false)
+    expect(s.canDeleteEnd.value).toBe(true)
+    s.select(1, 0)
+    expect(s.canDeleteArrow.value).toBe(false)
+    expect(s.canDeleteEnd.value).toBe(false)
+  })
+
+  it('update after scoring and deleting', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(1, 0)
+    s.score('9')
+    s.select(1, 0)
+    expect(s.canDeleteArrow.value).toBe(true)
+    expect(s.canDeleteEnd.value).toBe(true)
+    s.deleteArrow()
+    expect(s.canDeleteArrow.value).toBe(false)
+    expect(s.canDeleteEnd.value).toBe(false)
+    s.select(0, 1)
+    expect(s.canDeleteEnd.value).toBe(true)
+    s.deleteEnd()
+    expect(s.canDeleteArrow.value).toBe(false)
+    expect(s.canDeleteEnd.value).toBe(false)
+  })
+
+  it('are false when the session is closed, and react to it closing', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 0)
+    expect(s.canDeleteArrow.value).toBe(true)
+    useSessionsStore().getSession('s1')!.closed = true
+    expect(s.canDeleteArrow.value).toBe(false)
+    expect(s.canDeleteEnd.value).toBe(false)
+  })
+
+  it('are false for an unknown archer or session', () => {
+    seed(partial())
+    for (const s of [useScoring('s1', 'nope'), useScoring('nope', 'a1')]) {
+      expect(s.canDeleteArrow.value).toBe(false)
+      expect(s.canDeleteEnd.value).toBe(false)
+    }
+  })
+})

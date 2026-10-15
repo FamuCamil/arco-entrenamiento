@@ -1,7 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
+
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { useConfirm } from '@/composables/useConfirm'
 
 import { STORAGE_KEY } from '@/composables/usePersistence'
 import type { Session } from '@/domain/types'
@@ -21,6 +25,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  useConfirm().settle(false)
+  document.body.innerHTML = ''
   expect(warn).not.toHaveBeenCalled()
   expect(error).not.toHaveBeenCalled()
   vi.restoreAllMocks()
@@ -198,5 +204,158 @@ describe('ScoringView', () => {
     seed(makeSession({ faceId: 'missing-face' }))
     const w = await view()
     expect(w.text()).toContain('No se encontró la sesión.')
+  })
+})
+
+/** ScoringView plus the dialog host, as App.vue mounts them, attached for focus checks. */
+async function viewWithDialog() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/session/:id/score/:archerId', component: ScoringView, props: true }],
+  })
+  await router.push('/session/s1/score/a1')
+  const Host = defineComponent(() => () => [
+    h(ScoringView, { id: 's1', archerId: 'a1' }),
+    h(ConfirmDialog),
+  ])
+  const w = mount(Host, { global: { plugins: [router] }, attachTo: document.body })
+  await flushPromises()
+  return w
+}
+
+function seedPartial() {
+  const s = makeSession()
+  s.archers[0]!.ends[0] = ['X', '9', '8']
+  s.archers[0]!.ends[1] = ['7', '6', null]
+  seed(s)
+}
+
+const selectedId = (w: { get: (s: string) => { attributes: (a: string) => string | undefined } }) =>
+  w.get('[aria-current="true"]').attributes('data-testid')
+
+describe('ScoringView delete actions', () => {
+  it('shows «Borrar flecha» and «Borrar tanda» below the keypad', async () => {
+    seedPartial()
+    const w = await view()
+    const group = w.get('[role="group"][aria-label="Acciones de borrado"]')
+    expect(group.findAll('button').map((b) => b.text())).toEqual(['Borrar flecha', 'Borrar tanda'])
+    const controls = w.get('.controls').element
+    const keypad = w.get('[aria-label="Teclado de puntuación"]').element
+    expect(keypad.compareDocumentPosition(group.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(controls.contains(group.element)).toBe(true)
+  })
+
+  it('disables both on an empty cell of an empty end; only «Borrar flecha» on a gap', async () => {
+    seedPartial()
+    const w = await view()
+    // Entry selects the first gap: row 1, col 2 (end has values, cell empty).
+    expect(selectedId(w)).toBe('score-cell-1-2')
+    expect(w.get('[data-testid="delete-arrow"]').attributes('aria-disabled')).toBe('true')
+    expect(w.get('[data-testid="delete-end"]').attributes('aria-disabled')).toBeUndefined()
+    await w.get('[data-testid="score-cell-2-0"] button').trigger('click')
+    expect(w.get('[data-testid="delete-arrow"]').attributes('aria-disabled')).toBe('true')
+    expect(w.get('[data-testid="delete-end"]').attributes('aria-disabled')).toBe('true')
+    await w.get('[data-testid="score-cell-0-0"] button').trigger('click')
+    expect(w.get('[data-testid="delete-arrow"]').attributes('aria-disabled')).toBeUndefined()
+  })
+
+  it('«Borrar flecha» empties the selected cell without confirmation; selection stays', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-0-1"] button').trigger('click')
+    await w.get('[data-testid="delete-arrow"]').trigger('click')
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(w.get('[data-testid="score-cell-0-1"]').text()).toBe('')
+    expect(selectedId(w)).toBe('score-cell-0-1')
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[0]).toEqual(['X', null, '8'])
+    expect(w.get('[data-testid="delete-arrow"]').attributes('aria-disabled')).toBe('true')
+    await flushPromises()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', null, '8'])
+  })
+
+  it('a disabled «Borrar flecha» changes nothing', async () => {
+    seedPartial()
+    const w = await view()
+    await w.get('[data-testid="delete-arrow"]').trigger('click')
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[1]).toEqual(['7', '6', null])
+    expect(selectedId(w)).toBe('score-cell-1-2')
+  })
+
+  it('«Borrar tanda» asks first; Cancelar changes neither values nor selection', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-1-1"] button').trigger('click')
+    const endButton = w.get('[data-testid="delete-end"]')
+    ;(endButton.element as HTMLButtonElement).focus()
+    await endButton.trigger('click')
+    await flushPromises()
+    const dialog = w.get('[role="dialog"]')
+    expect(dialog.get('h2').text()).toBe('¿Borrar la tanda?')
+    expect(dialog.get('p').text()).toBe(
+      'Se borrarán todas las flechas de la serie 1, tanda 2. No se puede deshacer.',
+    )
+    expect(dialog.findAll('button').map((b) => b.text())).toEqual(['Cancelar', 'Borrar'])
+    await w.get('[data-testid="confirm-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[1]).toEqual(['7', '6', null])
+    expect(selectedId(w)).toBe('score-cell-1-1')
+    expect(document.activeElement).toBe(endButton.element)
+  })
+
+  it('«Borrar tanda» confirmed empties the end, selects its first arrow and refocuses', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-0-2"] button').trigger('click')
+    await w.get('[data-testid="delete-end"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    const ends = useSessionsStore().getArcher('s1', 'a1')!.ends
+    expect(ends[0]).toEqual([null, null, null])
+    expect(ends[1]).toEqual(['7', '6', null])
+    expect(selectedId(w)).toBe('score-cell-0-0')
+    // returnFocusTo: focus goes back to «Borrar tanda» even though a tap did not focus it.
+    expect(document.activeElement).toBe(w.get('[data-testid="delete-end"]').element)
+    expect(w.get('[data-testid="delete-end"]').attributes('aria-disabled')).toBe('true')
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(stored.sessions[0].archers[0].ends[0]).toEqual([null, null, null])
+  })
+
+  it('names series 2 ends correctly in the message', async () => {
+    const s = makeSession()
+    s.archers[0]!.ends[12] = ['5', null, null]
+    seed(s)
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-12-0"] button').trigger('click')
+    await w.get('[data-testid="delete-end"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[role="dialog"] p').text()).toBe(
+      'Se borrarán todas las flechas de la serie 2, tanda 3. No se puede deshacer.',
+    )
+  })
+
+  it('a disabled «Borrar tanda» opens no dialog', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-5-0"] button').trigger('click')
+    await w.get('[data-testid="delete-end"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(useConfirm().state.value).toBeNull()
+  })
+
+  it('a closed session shows no delete actions', async () => {
+    const s = makeSession({ closed: true })
+    s.archers[0]!.ends[0] = ['X', '9', '8']
+    seed(s)
+    const w = await view()
+    expect(w.find('[aria-label="Acciones de borrado"]').exists()).toBe(false)
+    expect(w.find('[data-testid="delete-arrow"]').exists()).toBe(false)
+    expect(w.find('[data-testid="delete-end"]').exists()).toBe(false)
   })
 })
