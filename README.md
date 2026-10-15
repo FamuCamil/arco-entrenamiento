@@ -32,6 +32,11 @@ npx playwright install chromium   # one-time: browser for e2e tests
 | `npm run test`      | Vitest unit tests                                                                   |
 | `npm run coverage`  | Unit tests with coverage (90% line threshold on `src/domain` and `src/composables`) |
 | `npm run test:e2e`  | Playwright end-to-end tests (375 px mobile viewport, against the production build)  |
+| `npm run icons`     | Regenerate the PNG app icons in `public/` from `public/favicon.svg`                 |
+
+## App icons
+
+The app icon is drawn in `public/favicon.svg`. After editing it, run `npm run icons` (it uses the Playwright Chromium from the setup step) and commit the regenerated PNGs. The build and CI use the committed PNGs and never regenerate them.
 
 ## Deployment
 

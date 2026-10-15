@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- App icon source: centre of a target face (gold + red), flat, on the app's dark background. -->
+  <!-- Regenerate the PNGs after editing: npm run icons -->
+  <rect width="512" height="512" fill="#111827"/>
+  <circle cx="256" cy="256" r="215" fill="#F65058"/>
+  <circle cx="256" cy="256" r="107" fill="#FFE552"/>
+</svg>
