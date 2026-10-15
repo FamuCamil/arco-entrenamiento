@@ -34,6 +34,7 @@ export function useScoring(sessionId: string, archerId: string) {
     if (isLocked.value || !archer.value) return
     const { row, col } = selected.value
     store.setArrow(sessionId, archerId, row, col, key)
+    // Advance from the touched cell even if CU-06 sorting moved its value.
     selected.value = nextCell(selected.value, archer.value.ends)
   }
 
