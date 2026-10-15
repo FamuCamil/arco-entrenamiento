@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 
 import { usePersistence } from '@/composables/usePersistence'
 import { createId } from '@/domain/ids'
+import { sortEnd } from '@/domain/scoring'
 import { getTargetFace } from '@/domain/targetFaces'
 import type { Archer, End, Session } from '@/domain/types'
 
@@ -79,10 +80,17 @@ export const useSessionsStore = defineStore('sessions', () => {
     if (!session || session.closed) return
     const end = session.archers.find((a) => a.id === archerId)?.ends[row]
     if (!end || !Number.isInteger(arrow) || arrow < 0 || arrow >= end.length) return
-    if (key !== null && !getTargetFace(session.faceId)?.zones.some((z) => z.key === key)) return
+    const face = key === null ? undefined : getTargetFace(session.faceId)
+    if (key !== null && !face?.zones.some((z) => z.key === key)) return
     end[arrow] = key
-    // TODO(CU-06): sort the end with sortEnd when it is complete. A null write never completes
-    // an end, so deleting an arrow never sorts: the gap stays where the arrow was.
+    // CU-06: a complete end is kept sorted, written back in place to keep the array's identity.
+    // A null write never completes an end, so deleting an arrow never sorts: the gap stays where
+    // the arrow was.
+    if (face && !end.includes(null)) {
+      sortEnd(end, face).forEach((k, i) => {
+        end[i] = k
+      })
+    }
     session.updatedAt = Date.now()
   }
 

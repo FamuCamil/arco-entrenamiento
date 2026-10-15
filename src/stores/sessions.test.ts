@@ -149,7 +149,7 @@ describe('setArrow', () => {
     expect(ends()[0]![0]).toBe('M')
   })
 
-  it('overwriting a cell of a complete end changes only that cell, persists, and does not re-sort', async () => {
+  it('overwriting a cell of a complete end re-sorts it and persists it sorted (CU-06)', async () => {
     const { store, ends } = setup()
     store.setArrow('s1', 'a1', 0, 0, 'X')
     store.setArrow('s1', 'a1', 0, 1, '9')
@@ -157,11 +157,81 @@ describe('setArrow', () => {
     store.setArrow('s1', 'a1', 1, 0, '7')
     await nextTick()
     store.setArrow('s1', 'a1', 0, 1, '2')
-    // CU-06 will sort ends; until then a correction stays in place.
-    expect(ends()[0]).toEqual(['X', '2', '8'])
+    expect(ends()[0]).toEqual(['X', '8', '2'])
+    // An incomplete end is never sorted.
     expect(ends()[1]).toEqual(['7', null, null])
     await nextTick()
-    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['X', '2', '8'])
+    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['X', '8', '2'])
+  })
+
+  it('completing an end out of order sorts it and persists it sorted (CU-06)', async () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 0, 0, '7')
+    store.setArrow('s1', 'a1', 0, 1, 'M')
+    expect(ends()[0]).toEqual(['7', 'M', null])
+    store.setArrow('s1', 'a1', 0, 2, 'X')
+    expect(ends()[0]).toEqual(['X', '7', 'M'])
+    await nextTick()
+    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['X', '7', 'M'])
+  })
+
+  it('sorts when the last gap filled is in the middle of the end', async () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 0, 0, '8')
+    store.setArrow('s1', 'a1', 0, 2, 'X')
+    expect(ends()[0]).toEqual(['8', null, 'X'])
+    store.setArrow('s1', 'a1', 0, 1, '9')
+    expect(ends()[0]).toEqual(['X', '9', '8'])
+    await nextTick()
+    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['X', '9', '8'])
+  })
+
+  it('never reorders an incomplete end', () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 0, 0, '7')
+    store.setArrow('s1', 'a1', 0, 1, 'X')
+    expect(ends()[0]).toEqual(['7', 'X', null])
+    // Overwriting a cell of an incomplete end does not sort either.
+    store.setArrow('s1', 'a1', 0, 0, 'M')
+    expect(ends()[0]).toEqual(['M', 'X', null])
+  })
+
+  it('keeps the end array identity when it sorts', () => {
+    const { store, ends } = setup()
+    const row = ends()[0]
+    store.setArrow('s1', 'a1', 0, 0, 'M')
+    store.setArrow('s1', 'a1', 0, 1, '7')
+    store.setArrow('s1', 'a1', 0, 2, 'X')
+    expect(ends()[0]).toBe(row)
+    expect(row).toEqual(['X', '7', 'M'])
+    expect(row).toHaveLength(3)
+  })
+
+  it('sorts a completed 3D end by the 3D face order', async () => {
+    const { store, ends } = setup({
+      faceId: '3d',
+      arrowsPerEnd: 4,
+      seriesCount: 1,
+      endsPerSeries: 3,
+    })
+    store.setArrow('s1', 'a1', 0, 0, '5')
+    store.setArrow('s1', 'a1', 0, 1, '11')
+    store.setArrow('s1', 'a1', 0, 2, 'M')
+    store.setArrow('s1', 'a1', 0, 3, '8')
+    expect(ends()[0]).toEqual(['11', '8', '5', 'M'])
+    await nextTick()
+    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['11', '8', '5', 'M'])
+  })
+
+  it('sorts a hydrated unsorted complete end on its next correction, not on load', () => {
+    const session = makeSession()
+    session.archers[0]!.ends[0] = ['8', 'X', '9']
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([session])))
+    const store = useSessionsStore()
+    const ends = () => store.getArcher('s1', 'a1')!.ends
+    expect(ends()[0]).toEqual(['8', 'X', '9'])
+    store.setArrow('s1', 'a1', 0, 0, '7')
+    expect(ends()[0]).toEqual(['X', '9', '7'])
   })
 
   it('writes a later row while earlier rows are still empty', () => {
@@ -219,6 +289,20 @@ describe('setArrow', () => {
     expect(store.getSession('s1')!.updatedAt).toBe(1)
   })
 
+  it('does not sort a complete end of a closed session (CU-06)', async () => {
+    const session = makeSession({ closed: true })
+    session.archers[0]!.ends[0] = ['8', 'X', '9']
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([session])))
+    const store = useSessionsStore()
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    store.setArrow('s1', 'a1', 0, 0, '7')
+    expect(store.getArcher('s1', 'a1')!.ends[0]).toEqual(['8', 'X', '9'])
+    expect(store.getSession('s1')!.updatedAt).toBe(1)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
   it('is a no-op when the session face is unknown', () => {
     const { store, ends } = setup({ faceId: 'missing-face' })
     store.setArrow('s1', 'a1', 0, 0, 'X')
@@ -271,6 +355,16 @@ describe('deleteEnd', () => {
     const { store, ends } = setup()
     store.setArrow('s1', 'a1', 0, 1, null)
     expect(ends()[0]).toEqual(['X', null, '8'])
+  })
+
+  it('setArrow(null) on an unsorted complete end leaves the gap in place (CU-06)', async () => {
+    const { store, ends } = setup()
+    // Seed an unsorted complete end, as data stored before CU-06 may hold it.
+    store.getSession('s1')!.archers[0]!.ends[2] = ['8', 'X', '9']
+    store.setArrow('s1', 'a1', 2, 0, null)
+    expect(ends()[2]).toEqual([null, 'X', '9'])
+    await nextTick()
+    expect(stored().sessions[0].archers[0].ends[2]).toEqual([null, 'X', '9'])
   })
 
   const noops: [string, (store: ReturnType<typeof useSessionsStore>) => void][] = [

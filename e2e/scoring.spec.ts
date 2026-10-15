@@ -227,13 +227,51 @@ test('corrects an arrow by tapping it; the correction survives a reload', async 
   await page.getByRole('button', { name: 'Anotar 7', exact: true }).click()
   await expect(cell(page, 0, 1)).toHaveText('7')
   await expectSelected(page, 0, 2)
-  // No re-sorting of the end (CU-06).
+  // X, 7, M is already best-to-worst, so CU-06 sorting leaves it as it is.
   await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '7', 'M'])
   const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
   expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '7', 'M'])
 
   await page.reload()
   await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '7', 'M'])
+  await expectSelected(page, 1, 0)
+  expect(problems).toEqual([])
+})
+
+test('sorts a completed end, re-sorts it on a correction and keeps it after reload (CU-06)', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  expect(page.viewportSize()?.width).toBe(375)
+  await openTestSession(page)
+  const row0 = page.getByTestId('score-row-0').locator('td')
+
+  // An incomplete end stays where the arrows were put.
+  for (const name of ['Anotar 7', 'Anotar fallo'])
+    await page.getByRole('button', { name, exact: true }).click()
+  await expect(row0).toHaveText(['7', 'M', ''])
+
+  // Completing it sorts it best-to-worst at once (no animation wait).
+  await page.getByRole('button', { name: 'Anotar X', exact: true }).click()
+  await expect(row0).toHaveText(['X', '7', 'M'], { timeout: 1000 })
+  await expectSelected(page, 1, 0)
+  const duration = await cell(page, 0, 0).evaluate((el) => getComputedStyle(el).transitionDuration)
+  expect(duration).toBe('0s')
+  let stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
+  expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '7', 'M'])
+
+  // Correct the first arrow to 5: the value moves to col 1, but the selection advances from
+  // the touched cell (0,0) to (0,1).
+  await cell(page, 0, 0).click()
+  await expectSelected(page, 0, 0)
+  await page.getByRole('button', { name: 'Anotar 5', exact: true }).click()
+  await expect(row0).toHaveText(['7', '5', 'M'], { timeout: 1000 })
+  await expectSelected(page, 0, 1)
+  stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
+  expect(stored.sessions[0].archers[0].ends[0]).toEqual(['7', '5', 'M'])
+
+  await page.reload()
+  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['7', '5', 'M'])
   await expectSelected(page, 1, 0)
   expect(problems).toEqual([])
 })
