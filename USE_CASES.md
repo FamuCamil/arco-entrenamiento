@@ -11,3 +11,4 @@ Statuses:
 | # | File | Title | Status | Updated |
 |---|------|-------|--------|---------|
 | 01 | [use-cases/01-anotar-flechas.md](use-cases/01-anotar-flechas.md) | CU-03 Anotar flechas | pending | 2026-10-15 |
+| 02 | [use-cases/02-corregir-flecha.md](use-cases/02-corregir-flecha.md) | CU-04 Corregir flecha | pending | 2026-10-15 |
