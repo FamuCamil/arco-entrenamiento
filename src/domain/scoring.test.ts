@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { firstEmptyCell, nextCell, sortEnd, zonePoints } from './scoring'
+import {
+  averagePerArrow,
+  endTotal,
+  firstEmptyCell,
+  grandTotal,
+  maxArrowPoints,
+  nextCell,
+  seriesRunningTotal,
+  seriesTotal,
+  sortEnd,
+  zonePoints,
+} from './scoring'
 import { getTargetFace } from './targetFaces'
 import type { End, TargetFace } from './types'
 
@@ -218,5 +229,252 @@ describe('sortEnd', () => {
 
   it('leaves an all-empty end all-empty', () => {
     expect(sortEnd([null, null, null], face('wa-40'))).toEqual([null, null, null])
+  })
+})
+
+describe('maxArrowPoints', () => {
+  it('is 10 on WA 40, 6 on the field face and 11 on 3D', () => {
+    expect(maxArrowPoints(face('wa-40'))).toBe(10)
+    expect(maxArrowPoints(face('wa-field'))).toBe(6)
+    expect(maxArrowPoints(face('3d'))).toBe(11)
+  })
+
+  it('is 10 on the reduced WA faces too', () => {
+    expect(maxArrowPoints(face('wa-80-6'))).toBe(10)
+    expect(maxArrowPoints(face('wa-40-triple'))).toBe(10)
+  })
+
+  it('is 0 for a face with no zones', () => {
+    expect(maxArrowPoints({ ...face('wa-40'), zones: [] })).toBe(0)
+  })
+})
+
+describe('endTotal', () => {
+  it("['X','9','M'] on WA 40 is 19", () => {
+    expect(endTotal(['X', '9', 'M'], face('wa-40'))).toBe(19)
+  })
+
+  it("['X','6',null] on the field face is 12 (X = 6, empty = 0)", () => {
+    expect(endTotal(['X', '6', null], face('wa-field'))).toBe(12)
+  })
+
+  it("['11','5'] on 3D is 16", () => {
+    expect(endTotal(['11', '5'], face('3d'))).toBe(16)
+  })
+
+  it('an empty end and an all-M end are 0', () => {
+    expect(endTotal([null, null, null], face('wa-40'))).toBe(0)
+    expect(endTotal(['M', 'M', 'M'], face('wa-40'))).toBe(0)
+    expect(endTotal([], face('wa-40'))).toBe(0)
+  })
+
+  it('a full end of the best zone equals the end maximum', () => {
+    const f = face('wa-122')
+    expect(endTotal(['X', 'X', 'X', 'X', 'X', 'X'], f)).toBe(6 * maxArrowPoints(f))
+  })
+
+  it('unknown keys count 0', () => {
+    expect(endTotal(['11', '9'], face('wa-field'))).toBe(0)
+  })
+})
+
+/** 2 series × 3 ends × 3 arrows on WA 40. */
+const twoSeries = (): End[] => [
+  ['10', '9', '8'], // 27
+  ['X', null, null], // 10
+  [null, null, null], // 0
+  ['7', '7', '7'], // 21
+  ['M', '1', null], // 1
+  ['5', '5', '5'], // 15
+]
+
+describe('seriesRunningTotal', () => {
+  const f = face('wa-40')
+
+  it('sums from the first end of the series up to the row, inclusive', () => {
+    const e = twoSeries()
+    expect([0, 1, 2].map((r) => seriesRunningTotal(e, r, 3, f))).toEqual([27, 37, 37])
+  })
+
+  it('starts fresh at the first end of the next series', () => {
+    const e = twoSeries()
+    expect([3, 4, 5].map((r) => seriesRunningTotal(e, r, 3, f))).toEqual([21, 22, 37])
+  })
+
+  it('row 10 of a 2×10 session starts series 2 afresh', () => {
+    const e: End[] = Array.from({ length: 20 }, () => ['X', 'X', 'X'])
+    expect(seriesRunningTotal(e, 9, 10, f)).toBe(300)
+    expect(seriesRunningTotal(e, 10, 10, f)).toBe(30)
+    expect(seriesRunningTotal(e, 19, 10, f)).toBe(300)
+  })
+
+  it('uses the face points (field X = 6, 3D 11)', () => {
+    expect(
+      seriesRunningTotal(
+        [
+          ['X', '6'],
+          ['X', '5'],
+        ],
+        1,
+        2,
+        face('wa-field'),
+      ),
+    ).toBe(23)
+    expect(
+      seriesRunningTotal(
+        [
+          ['11', '11'],
+          ['10', 'M'],
+        ],
+        1,
+        2,
+        face('3d'),
+      ),
+    ).toBe(32)
+  })
+
+  it('is 0 for a row out of range, a non-integer row or endsPerSeries < 1', () => {
+    const e = twoSeries()
+    expect(seriesRunningTotal(e, -1, 3, f)).toBe(0)
+    expect(seriesRunningTotal(e, 6, 3, f)).toBe(0)
+    expect(seriesRunningTotal(e, 1.5, 3, f)).toBe(0)
+    expect(seriesRunningTotal(e, 1, 0, f)).toBe(0)
+    expect(seriesRunningTotal([], 0, 3, f)).toBe(0)
+  })
+})
+
+describe('seriesTotal', () => {
+  const f = face('wa-40')
+
+  it('totals each series', () => {
+    const e = twoSeries()
+    expect(seriesTotal(e, 0, 3, f)).toBe(37)
+    expect(seriesTotal(e, 1, 3, f)).toBe(37)
+  })
+
+  it('a full series of X reaches the series maximum endsPerSeries × arrowsPerEnd × max', () => {
+    const e: End[] = Array.from({ length: 20 }, () => ['X', 'X', 'X'])
+    expect(seriesTotal(e, 0, 10, f)).toBe(10 * 3 * maxArrowPoints(f))
+    expect(seriesTotal(e, 1, 10, f)).toBe(300)
+  })
+
+  it('uses the face points on field and 3D', () => {
+    expect(
+      seriesTotal(
+        [
+          ['X', 'X'],
+          ['6', '1'],
+        ],
+        0,
+        2,
+        face('wa-field'),
+      ),
+    ).toBe(19)
+    expect(
+      seriesTotal(
+        [
+          ['11', '8'],
+          ['5', null],
+        ],
+        0,
+        2,
+        face('3d'),
+      ),
+    ).toBe(24)
+  })
+
+  it('is 0 for a series out of range, a non-integer series or endsPerSeries < 1', () => {
+    const e = twoSeries()
+    expect(seriesTotal(e, 2, 3, f)).toBe(0)
+    expect(seriesTotal(e, -1, 3, f)).toBe(0)
+    expect(seriesTotal(e, 0.5, 3, f)).toBe(0)
+    expect(seriesTotal(e, 0, 0, f)).toBe(0)
+  })
+})
+
+describe('grandTotal', () => {
+  it('totals every end of the session', () => {
+    expect(grandTotal(twoSeries(), face('wa-40'))).toBe(74)
+  })
+
+  it('equals the sum of the series totals', () => {
+    const e = twoSeries()
+    const f = face('wa-40')
+    expect(grandTotal(e, f)).toBe(seriesTotal(e, 0, 3, f) + seriesTotal(e, 1, 3, f))
+  })
+
+  it('a full session of the best zone reaches rows × arrowsPerEnd × max', () => {
+    const e: End[] = Array.from({ length: 20 }, () => ['X', 'X', 'X'])
+    expect(grandTotal(e, face('wa-40'))).toBe(20 * 3 * 10)
+  })
+
+  it('uses the face points on field and 3D', () => {
+    expect(
+      grandTotal(
+        [
+          ['X', '6'],
+          ['X', null],
+        ],
+        face('wa-field'),
+      ),
+    ).toBe(18)
+    expect(
+      grandTotal(
+        [
+          ['11', '5'],
+          ['10', '8'],
+        ],
+        face('3d'),
+      ),
+    ).toBe(34)
+  })
+
+  it('is 0 for no ends', () => {
+    expect(grandTotal([], face('wa-40'))).toBe(0)
+  })
+})
+
+describe('averagePerArrow', () => {
+  it("[['10','9'],['8',null]] on WA 40 is 9.00 (only arrows shot count)", () => {
+    expect(
+      averagePerArrow(
+        [
+          ['10', '9'],
+          ['8', null],
+        ],
+        face('wa-40'),
+      ),
+    ).toBe(9)
+  })
+
+  it('rounds to 2 decimals: 26/3 is 8.67', () => {
+    expect(averagePerArrow([['10', '8', '8']], face('wa-40'))).toBe(8.67)
+  })
+
+  it('rounds half up: 29/8 = 3.625 is 3.63', () => {
+    const e: End[] = [['10', '9', '5', '5', 'M', 'M', 'M', 'M']]
+    expect(averagePerArrow(e, face('wa-40'))).toBe(3.63)
+  })
+
+  it('a miss counts as an arrow shot (0 points)', () => {
+    expect(averagePerArrow([['10', 'M', null]], face('wa-40'))).toBe(5)
+  })
+
+  it('is null when nothing was shot', () => {
+    expect(averagePerArrow([[null, null, null]], face('wa-40'))).toBeNull()
+    expect(averagePerArrow([], face('wa-40'))).toBeNull()
+  })
+
+  it('uses the face points on field (X = 6) and 3D (11)', () => {
+    expect(averagePerArrow([['X', '5', null]], face('wa-field'))).toBe(5.5)
+    expect(
+      averagePerArrow(
+        [
+          ['11', '8'],
+          ['5', null],
+        ],
+        face('3d'),
+      ),
+    ).toBe(8)
   })
 })

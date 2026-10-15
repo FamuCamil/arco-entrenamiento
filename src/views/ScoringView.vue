@@ -7,6 +7,7 @@ import ScoreGrid from '@/components/ScoreGrid.vue'
 import ScoreKeypad from '@/components/ScoreKeypad.vue'
 import { useConfirm } from '@/composables/useConfirm'
 import { useScoring } from '@/composables/useScoring'
+import { useSessionStats } from '@/composables/useSessionStats'
 
 const props = defineProps<{
   id: string
@@ -27,6 +28,7 @@ const {
   deleteEnd,
   activeRowRef,
 } = useScoring(props.id, props.archerId)
+const stats = useSessionStats(props.id, props.archerId)
 const { confirm } = useConfirm()
 
 const actions = ref<InstanceType<typeof ScoreActions> | null>(null)
@@ -53,7 +55,10 @@ function registerActiveRow(el: HTMLElement) {
 
 <template>
   <section v-if="session && archer && face" class="scoring">
-    <h2 class="archer">{{ archer.position }} - {{ archer.name }}</h2>
+    <div class="scoring-header">
+      <h2 class="archer">{{ archer.position }} - {{ archer.name }}</h2>
+      <p class="average" data-testid="average">{{ stats.averageLabel.value }}</p>
+    </div>
 
     <div class="grid-scroller">
       <ScoreGrid
@@ -62,6 +67,13 @@ function registerActiveRow(el: HTMLElement) {
         :selected="selected"
         :register-active-row="registerActiveRow"
         :interactive="!isLocked"
+        :end-totals="stats.endTotals.value"
+        :running-totals="stats.runningTotals.value"
+        :series-totals="stats.seriesTotals.value"
+        :grand-total="stats.grandTotal.value"
+        :end-max="stats.endMax.value"
+        :series-max="stats.seriesMax.value"
+        :grand-max="stats.grandMax.value"
         @select="select"
       />
     </div>
@@ -102,10 +114,24 @@ function registerActiveRow(el: HTMLElement) {
   gap: var(--space-3);
 }
 
-.archer {
+.scoring-header {
   flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
+.archer {
   margin: 0;
   font-size: var(--font-size-lg);
+}
+
+.average {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .grid-scroller {

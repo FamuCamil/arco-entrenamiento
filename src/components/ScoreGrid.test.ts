@@ -21,7 +21,7 @@ function grid(
 }
 
 describe('ScoreGrid', () => {
-  it('renders one table per series with caption «Serie n», 10 rows of 3 cells', () => {
+  it('renders one table per series with caption «Serie n», 10 rows of 3 arrow cells and 2 totals', () => {
     const w = grid(ends(20, 3), { row: 0, col: 0 })
     const tables = w.findAll('table')
     expect(tables).toHaveLength(2)
@@ -29,7 +29,11 @@ describe('ScoreGrid', () => {
     for (const t of tables) {
       const rows = t.findAll('tbody tr')
       expect(rows).toHaveLength(10)
-      for (const r of rows) expect(r.findAll('td')).toHaveLength(3)
+      for (const r of rows) {
+        expect(r.findAll('td.score-cell')).toHaveLength(3)
+        expect(r.findAll('td.total')).toHaveLength(2)
+        expect(r.findAll('td')).toHaveLength(5)
+      }
     }
   })
 
@@ -51,14 +55,19 @@ describe('ScoreGrid', () => {
     }
   })
 
-  it('has one column header per arrow', () => {
+  it('has the end header, one column header per arrow, «Total» and «Acum.»', () => {
     const w = grid(ends(20, 3), { row: 0, col: 0 })
     expect(
       w
         .get('thead')
         .findAll('th')
         .map((th) => th.text()),
-    ).toEqual(['Tanda', '1', '2', '3'])
+    ).toEqual(['T.', '1', '2', '3', 'Total', 'Acum.'])
+    const abbrs = w.get('thead').findAll('abbr')
+    expect(abbrs.map((a) => [a.text(), a.attributes('title')])).toEqual([
+      ['T.', 'Tanda'],
+      ['Acum.', 'Acumulado'],
+    ])
   })
 
   it('exposes row and cell test ids with global row indexes', () => {
@@ -95,7 +104,7 @@ describe('ScoreGrid', () => {
 
   it('interactive: each cell holds one focusable native button and no tabindex hacks', () => {
     const w = grid(ends(2, 3), { row: 0, col: 0 })
-    const tds = w.findAll('td')
+    const tds = w.findAll('td.score-cell')
     expect(tds).toHaveLength(6)
     for (const td of tds) {
       const buttons = td.findAll('button')
@@ -171,5 +180,137 @@ describe('ScoreGrid', () => {
     const w = grid(ends(24, 2), { row: 0, col: 0 }, vi.fn(), 12)
     expect(w.findAll('table')).toHaveLength(2)
     expect(w.findAll('table')[1]!.findAll('tbody tr')).toHaveLength(12)
+  })
+
+  it('switching to not interactive keeps the totals', async () => {
+    const e = ends(2, 3)
+    e[0] = ['X', '9', null]
+    const w = grid(e, { row: 0, col: 0 })
+    await w.setProps({ endTotals: [19, null], runningTotals: [19, null], endMax: 30 })
+    await w.setProps({ interactive: false })
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('19/30')
+    expect(w.get('[data-testid="running-total-0"]').text()).toBe('19')
+  })
+})
+
+describe('ScoreGrid totals', () => {
+  function withStats(e: End[], endsPerSeries: number, stats: Record<string, unknown>) {
+    return mount(ScoreGrid, {
+      props: {
+        ends: e,
+        endsPerSeries,
+        selected: { row: 0, col: 0 },
+        registerActiveRow: vi.fn(),
+        interactive: true,
+        ...stats,
+      },
+    })
+  }
+
+  const stats = {
+    endTotals: [27, 10, null, 21],
+    runningTotals: [27, 37, null, 21],
+    seriesTotals: [37, 21],
+    grandTotal: 58,
+    endMax: 30,
+    seriesMax: 90,
+    grandMax: 180,
+  }
+
+  it('each row shows «X/endMax» and the running total; null rows are blank', () => {
+    const w = withStats(ends(6, 3), 3, stats)
+    const text = (id: string) => w.get(`[data-testid="${id}"]`).text()
+    expect(text('end-total-0')).toBe('27/30')
+    expect(text('running-total-0')).toBe('27')
+    expect(text('end-total-1')).toBe('10/30')
+    expect(text('running-total-1')).toBe('37')
+    expect(text('end-total-2')).toBe('')
+    expect(text('running-total-2')).toBe('')
+    expect(text('end-total-3')).toBe('21/30')
+    expect(text('running-total-3')).toBe('21')
+    // Missing entries (rows past the arrays) are blank too.
+    expect(text('end-total-5')).toBe('')
+    expect(text('running-total-5')).toBe('')
+  })
+
+  it('a 0 total is shown, not blanked', () => {
+    const w = withStats(ends(2, 3), 2, { ...stats, endTotals: [0, null], runningTotals: [0, null] })
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('0/30')
+    expect(w.get('[data-testid="running-total-0"]').text()).toBe('0')
+  })
+
+  it('the totals sit after the arrow cells and are not interactive', () => {
+    const w = withStats(ends(6, 3), 3, stats)
+    const cells = w.get('[data-testid="score-row-0"]').findAll('td')
+    expect(cells.map((c) => c.attributes('data-testid'))).toEqual([
+      'score-cell-0-0',
+      'score-cell-0-1',
+      'score-cell-0-2',
+      'end-total-0',
+      'running-total-0',
+    ])
+    for (const c of cells.slice(3)) {
+      expect(c.findAll('button')).toHaveLength(0)
+      expect(c.attributes('tabindex')).toBeUndefined()
+    }
+  })
+
+  it('each series ends with a tfoot row «Total Serie n: X/seriesMax» spanning every column', () => {
+    const w = withStats(ends(6, 3), 3, stats)
+    const tables = w.findAll('table')
+    expect(tables).toHaveLength(2)
+    expect(tables[0]!.get('tfoot').text()).toBe('Total Serie 1: 37/90')
+    expect(tables[1]!.get('tfoot').text()).toBe('Total Serie 2: 21/90')
+    const td = w.get('[data-testid="series-total-1"]')
+    expect(td.attributes('colspan')).toBe('6')
+  })
+
+  it('the grid ends with «TOTAL GENERAL: X/grandMax» after the last table', () => {
+    const w = withStats(ends(6, 3), 3, stats)
+    const grand = w.get('[data-testid="grand-total"]')
+    expect(grand.text()).toBe('TOTAL GENERAL: 58/180')
+    const children = Array.from(w.get('.score-grid').element.children)
+    expect(children.at(-1)).toBe(grand.element)
+  })
+
+  it('without stats props: blank rows, zero series and grand totals', () => {
+    const w = grid(ends(4, 3), { row: 0, col: 0 }, vi.fn(), 2)
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('')
+    expect(w.get('[data-testid="running-total-3"]').text()).toBe('')
+    expect(w.get('[data-testid="series-total-0"]').text()).toBe('Total Serie 1: 0/0')
+    expect(w.get('[data-testid="series-total-1"]').text()).toBe('Total Serie 2: 0/0')
+    expect(w.get('[data-testid="grand-total"]').text()).toBe('TOTAL GENERAL: 0/0')
+  })
+
+  it('6 arrows: a colgroup with end, 6 arrow, Total and Acum. columns; colspan 9', () => {
+    const w = withStats(ends(2, 6), 2, { ...stats, endMax: 60 })
+    const cols = w.get('table').findAll('colgroup col')
+    expect(cols).toHaveLength(9)
+    expect(cols[0]!.classes()).toContain('col-end')
+    expect(cols[7]!.classes()).toContain('col-total')
+    expect(cols[8]!.classes()).toContain('col-running')
+    expect(w.get('[data-testid="series-total-0"]').attributes('colspan')).toBe('9')
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('27/60')
+  })
+
+  it('updates when the stats props change', async () => {
+    const w = withStats(ends(2, 3), 2, {
+      endTotals: [null, null],
+      runningTotals: [null, null],
+      seriesTotals: [0],
+      grandTotal: 0,
+      endMax: 30,
+      seriesMax: 60,
+      grandMax: 60,
+    })
+    await w.setProps({
+      endTotals: [19, null],
+      runningTotals: [19, null],
+      seriesTotals: [19],
+      grandTotal: 19,
+    })
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('19/30')
+    expect(w.get('[data-testid="series-total-0"]').text()).toBe('Total Serie 1: 19/60')
+    expect(w.get('[data-testid="grand-total"]').text()).toBe('TOTAL GENERAL: 19/60')
   })
 })

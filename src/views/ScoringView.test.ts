@@ -377,3 +377,117 @@ describe('ScoringView delete actions', () => {
     expect(w.find('[data-testid="delete-end"]').exists()).toBe(false)
   })
 })
+
+describe('ScoringView live totals (CU-07)', () => {
+  const text = (w: { get: (s: string) => { text: () => string } }, id: string) =>
+    w.get(`[data-testid="${id}"]`).text()
+
+  it('the header shows the archer and «Promedio: —» before any arrow', async () => {
+    seed()
+    const w = await view()
+    const header = w.get('.scoring-header')
+    expect(header.get('h2').text()).toBe('A - Yo')
+    expect(header.get('[data-testid="average"]').text()).toBe('Promedio: —')
+    expect(text(w, 'series-total-0')).toBe('Total Serie 1: 0/300')
+    expect(text(w, 'series-total-1')).toBe('Total Serie 2: 0/300')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 0/600')
+    expect(text(w, 'end-total-0')).toBe('')
+    expect(text(w, 'running-total-0')).toBe('')
+  })
+
+  it('shows the stored totals and average on entry', async () => {
+    seedPartial()
+    const w = await view()
+    expect(text(w, 'end-total-0')).toBe('27/30')
+    expect(text(w, 'running-total-0')).toBe('27')
+    expect(text(w, 'end-total-1')).toBe('13/30')
+    expect(text(w, 'running-total-1')).toBe('40')
+    expect(text(w, 'end-total-2')).toBe('')
+    expect(text(w, 'series-total-0')).toBe('Total Serie 1: 40/300')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 40/600')
+    expect(text(w, 'average')).toBe('Promedio: 8.00')
+  })
+
+  it('a key press updates the row, running, series and grand totals and the average', async () => {
+    seed()
+    const w = await view()
+    for (const key of ['10', '8', '8']) await w.get(`[data-testid="key-${key}"]`).trigger('click')
+    expect(text(w, 'end-total-0')).toBe('26/30')
+    expect(text(w, 'running-total-0')).toBe('26')
+    expect(text(w, 'average')).toBe('Promedio: 8.67')
+    await w.get('[data-testid="key-X"]').trigger('click')
+    expect(text(w, 'end-total-1')).toBe('10/30')
+    expect(text(w, 'running-total-1')).toBe('36')
+    expect(text(w, 'series-total-0')).toBe('Total Serie 1: 36/300')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 36/600')
+    expect(text(w, 'average')).toBe('Promedio: 9.00')
+  })
+
+  it('a correction and «Borrar flecha» recompute everything', async () => {
+    seedPartial()
+    const w = await view()
+    await w.get('[data-testid="score-cell-0-1"] button').trigger('click')
+    await w.get('[data-testid="key-M"]').trigger('click')
+    // X 9 8 → X M 8 is complete, so it sorts to X 8 M.
+    expect(text(w, 'end-total-0')).toBe('18/30')
+    expect(text(w, 'running-total-1')).toBe('31')
+    await w.get('[data-testid="score-cell-1-0"] button').trigger('click')
+    await w.get('[data-testid="delete-arrow"]').trigger('click')
+    expect(text(w, 'end-total-1')).toBe('6/30')
+    expect(text(w, 'running-total-1')).toBe('24')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 24/600')
+    expect(text(w, 'average')).toBe('Promedio: 6.00')
+  })
+
+  it('«Borrar tanda» confirmed blanks the row and recomputes', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-1-0"] button').trigger('click')
+    await w.get('[data-testid="delete-end"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(text(w, 'end-total-1')).toBe('')
+    expect(text(w, 'running-total-1')).toBe('')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 27/600')
+    expect(text(w, 'average')).toBe('Promedio: 9.00')
+  })
+
+  it('a closed session shows the same totals and average, read-only', async () => {
+    const s = makeSession({ closed: true })
+    s.archers[0]!.ends[0] = ['X', '9', '8']
+    s.archers[0]!.ends[12] = ['7', null, null]
+    seed(s)
+    const w = await view()
+    expect(w.findAll('button')).toHaveLength(0)
+    expect(text(w, 'end-total-0')).toBe('27/30')
+    expect(text(w, 'end-total-12')).toBe('7/30')
+    expect(text(w, 'running-total-12')).toBe('7')
+    expect(text(w, 'series-total-1')).toBe('Total Serie 2: 7/300')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 34/600')
+    expect(text(w, 'average')).toBe('Promedio: 8.50')
+  })
+
+  it('field and 3D sessions use their own points and maxima', async () => {
+    const field = makeSession({ faceId: 'wa-field' })
+    field.archers[0]!.ends[0] = ['X', '6', null]
+    seed(field)
+    let w = await view()
+    expect(text(w, 'end-total-0')).toBe('12/18')
+    expect(text(w, 'grand-total')).toBe('TOTAL GENERAL: 12/360')
+    w.unmount()
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    const threeD = makeSession({ faceId: '3d', seriesCount: 1, endsPerSeries: 2, arrowsPerEnd: 2 })
+    threeD.archers[0]!.ends = [
+      ['11', '5'],
+      [null, null],
+    ]
+    seed(threeD)
+    w = await view()
+    expect(text(w, 'end-total-0')).toBe('16/22')
+    expect(text(w, 'series-total-0')).toBe('Total Serie 1: 16/44')
+    expect(text(w, 'average')).toBe('Promedio: 8.00')
+  })
+})
