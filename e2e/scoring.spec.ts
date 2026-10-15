@@ -32,15 +32,31 @@ async function openTestSession(page: Page) {
   await expect(page).toHaveURL(/#\/session\/[^/]+\/score\/[^/]+$/)
 }
 
-/** Seeds one WA 40 2×10×3 session before the app boots (only if storage is still empty). */
+/**
+ * Seeds one session before the app boots (only if storage is still empty). Defaults to WA 40
+ * 2×10×3.
+ */
 async function seed(
   page: Page,
-  opts: { closed?: boolean; filledRows?: number; ends?: (string | null)[][] } = {},
+  opts: {
+    closed?: boolean
+    filledRows?: number
+    ends?: (string | null)[][]
+    faceId?: string
+    seriesCount?: number
+    endsPerSeries?: number
+    arrowsPerEnd?: number
+  } = {},
 ): Promise<string> {
+  const seriesCount = opts.seriesCount ?? 2
+  const endsPerSeries = opts.endsPerSeries ?? 10
+  const arrowsPerEnd = opts.arrowsPerEnd ?? 3
   const ends =
     opts.ends ??
-    Array.from({ length: 20 }, (_, r) =>
-      r < (opts.filledRows ?? 0) ? ['X', '9', '8'] : [null, null, null],
+    Array.from({ length: seriesCount * endsPerSeries }, (_, r) =>
+      r < (opts.filledRows ?? 0)
+        ? ['X', '9', '8']
+        : Array.from({ length: arrowsPerEnd }, () => null),
     )
   const state = {
     version: 1,
@@ -51,10 +67,10 @@ async function seed(
         date: '2026-10-15',
         location: 'Club',
         distance: 18,
-        faceId: 'wa-40',
-        seriesCount: 2,
-        endsPerSeries: 10,
-        arrowsPerEnd: 3,
+        faceId: opts.faceId ?? 'wa-40',
+        seriesCount,
+        endsPerSeries,
+        arrowsPerEnd,
         archers: [{ id: 'seed-archer', name: 'Yo', position: 'A', ends }],
         notes: '',
         closed: opts.closed ?? false,
@@ -83,7 +99,7 @@ test('scores a full end, advances the selection and keeps it after reload', asyn
   for (const t of await tables.all()) {
     await expect(t.locator('tbody tr')).toHaveCount(10)
     for (const row of await t.locator('tbody tr').all())
-      await expect(row.locator('td')).toHaveCount(3)
+      await expect(row.locator('td.score-cell')).toHaveCount(3)
   }
   await expectSelected(page, 0, 0)
 
@@ -228,12 +244,12 @@ test('corrects an arrow by tapping it; the correction survives a reload', async 
   await expect(cell(page, 0, 1)).toHaveText('7')
   await expectSelected(page, 0, 2)
   // X, 7, M is already best-to-worst, so CU-06 sorting leaves it as it is.
-  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '7', 'M'])
+  await expect(page.getByTestId('score-row-0').locator('td.score-cell')).toHaveText(['X', '7', 'M'])
   const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
   expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '7', 'M'])
 
   await page.reload()
-  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '7', 'M'])
+  await expect(page.getByTestId('score-row-0').locator('td.score-cell')).toHaveText(['X', '7', 'M'])
   await expectSelected(page, 1, 0)
   expect(problems).toEqual([])
 })
@@ -244,7 +260,7 @@ test('sorts a completed end, re-sorts it on a correction and keeps it after relo
   const problems = trackConsole(page)
   expect(page.viewportSize()?.width).toBe(375)
   await openTestSession(page)
-  const row0 = page.getByTestId('score-row-0').locator('td')
+  const row0 = page.getByTestId('score-row-0').locator('td.score-cell')
 
   // An incomplete end stays where the arrows were put.
   for (const name of ['Anotar 7', 'Anotar fallo'])
@@ -271,7 +287,7 @@ test('sorts a completed end, re-sorts it on a correction and keeps it after relo
   expect(stored.sessions[0].archers[0].ends[0]).toEqual(['7', '5', 'M'])
 
   await page.reload()
-  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['7', '5', 'M'])
+  await expect(page.getByTestId('score-row-0').locator('td.score-cell')).toHaveText(['7', '5', 'M'])
   await expectSelected(page, 1, 0)
   expect(problems).toEqual([])
 })
@@ -443,7 +459,7 @@ test('deletes an arrow, cancels and confirms «Borrar tanda», and keeps it afte
   await expect(dialog.getByRole('button', { name: 'Cancelar', exact: true })).toBeFocused()
   await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+  await expect(page.getByTestId('score-row-1').locator('td.score-cell')).toHaveText(['7', '6', ''])
   await expectSelected(page, 1, 0)
   await expect(deleteEnd).toBeFocused()
 
@@ -452,7 +468,7 @@ test('deletes an arrow, cancels and confirms «Borrar tanda», and keeps it afte
   await expect(dialog).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+  await expect(page.getByTestId('score-row-1').locator('td.score-cell')).toHaveText(['7', '6', ''])
   await expectSelected(page, 1, 0)
   await expect(deleteEnd).toBeFocused()
 
@@ -461,7 +477,7 @@ test('deletes an arrow, cancels and confirms «Borrar tanda», and keeps it afte
   await deleteEnd.click()
   await dialog.getByRole('button', { name: 'Borrar', exact: true }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['', '', ''])
+  await expect(page.getByTestId('score-row-1').locator('td.score-cell')).toHaveText(['', '', ''])
   await expectSelected(page, 1, 0)
   await expect(deleteEnd).toHaveAttribute('aria-disabled', 'true')
   await expect(deleteEnd).toBeFocused()
@@ -471,8 +487,8 @@ test('deletes an arrow, cancels and confirms «Borrar tanda», and keeps it afte
 
   // 5. Reload: the deletions persist and no dialog is open.
   await page.reload()
-  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '', '8'])
-  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['', '', ''])
+  await expect(page.getByTestId('score-row-0').locator('td.score-cell')).toHaveText(['X', '', '8'])
+  await expect(page.getByTestId('score-row-1').locator('td.score-cell')).toHaveText(['', '', ''])
   await expect(dialog).toHaveCount(0)
   await expectSelected(page, 0, 1)
 
@@ -562,14 +578,14 @@ test('delete actions and dialog fit 375 px with ≥48 px buttons, labels and vis
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(page.getByTestId('delete-end')).toBeFocused()
-  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+  await expect(page.getByTestId('score-row-1').locator('td.score-cell')).toHaveText(['7', '6', ''])
 
   // Backdrop tap cancels too.
   await page.getByTestId('delete-end').click()
   await expect(dialog).toBeVisible()
   await page.getByTestId('confirm-backdrop').click({ position: { x: 10, y: 10 } })
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('score-row-1').locator('td')).toHaveText(['7', '6', ''])
+  await expect(page.getByTestId('score-row-1').locator('td.score-cell')).toHaveText(['7', '6', ''])
 
   expect(problems).toEqual([])
 })
@@ -584,4 +600,201 @@ test('a closed session shows no delete actions and keeps its arrows', async ({ p
   await expect(page.getByTestId('delete-end')).toHaveCount(0)
   expect((await storedEnds(page))[0]).toEqual(['X', '9', '8'])
   expect(problems).toEqual([])
+})
+
+test('live totals at 375 px: rows, running totals, series, grand total and average (CU-07)', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  await openTestSession(page)
+  expect(page.viewportSize()?.width).toBe(375)
+  const text = (id: string) => page.getByTestId(id)
+  const press = async (...names: string[]) => {
+    for (const name of names) await page.getByRole('button', { name, exact: true }).click()
+  }
+
+  await expect(text('average')).toHaveText('Promedio: —')
+  await expect(text('end-total-0')).toHaveText('')
+  await expect(text('running-total-0')).toHaveText('')
+  await expect(text('series-total-0')).toHaveText('Total Serie 1: 0/300')
+  await expect(text('grand-total')).toHaveText('TOTAL GENERAL: 0/600')
+
+  // End 1: 10 9 9 = 28. A partial end shows the arrows shot so far.
+  await press('Anotar 10')
+  await expect(text('end-total-0')).toHaveText('10/30')
+  await expect(text('average')).toHaveText('Promedio: 10.00')
+  await press('Anotar 9', 'Anotar 9')
+  await expect(text('end-total-0')).toHaveText('28/30')
+  await expect(text('running-total-0')).toHaveText('28')
+
+  // End 2: X 8 M = 18; the series accumulates.
+  await press('Anotar X', 'Anotar 8', 'Anotar fallo')
+  await expect(text('end-total-1')).toHaveText('18/30')
+  await expect(text('running-total-1')).toHaveText('46')
+  await expect(text('end-total-2')).toHaveText('')
+  await expect(text('running-total-2')).toHaveText('')
+  await expect(text('series-total-0')).toHaveText('Total Serie 1: 46/300')
+  await expect(text('series-total-1')).toHaveText('Total Serie 2: 0/300')
+  await expect(text('grand-total')).toHaveText('TOTAL GENERAL: 46/600')
+  // 46 / 6 = 7.666…
+  await expect(text('average')).toHaveText('Promedio: 7.67')
+
+  // Delete the 8 (now arrow 2 of end 2): everything recomputes over the 5 arrows left.
+  await cell(page, 1, 1).click()
+  await page.getByTestId('delete-arrow').click()
+  await expect(cell(page, 1, 1)).toHaveText('')
+  await expect(text('end-total-1')).toHaveText('10/30')
+  await expect(text('running-total-1')).toHaveText('38')
+  await expect(text('series-total-0')).toHaveText('Total Serie 1: 38/300')
+  await expect(text('grand-total')).toHaveText('TOTAL GENERAL: 38/600')
+  await expect(text('average')).toHaveText('Promedio: 7.60')
+
+  // Totals are derived: nothing new is persisted and they come back after a reload.
+  const stored = await page.evaluate((key) => localStorage.getItem(key)!, STORAGE_KEY)
+  expect(stored).not.toMatch(/Promedio|total/i)
+  await page.reload()
+  await expect(text('running-total-1')).toHaveText('38')
+  await expect(text('average')).toHaveText('Promedio: 7.60')
+  expect(problems).toEqual([])
+})
+
+test('totals recompute after «Borrar tanda» and a correction that re-sorts the end', async ({
+  page,
+}) => {
+  const url = await seedForDelete(page)
+  await page.goto(`./${url}`)
+  const text = (id: string) => page.getByTestId(id)
+  await expect(text('end-total-0')).toHaveText('27/30')
+  await expect(text('running-total-1')).toHaveText('40')
+  await expect(text('average')).toHaveText('Promedio: 8.00')
+
+  // Correct the 9 to M: X M 8 re-sorts to X 8 M.
+  await cell(page, 0, 1).click()
+  await page.getByRole('button', { name: 'Anotar fallo', exact: true }).click()
+  await expect(page.getByTestId('score-row-0').locator('td.score-cell')).toHaveText(['X', '8', 'M'])
+  await expect(text('end-total-0')).toHaveText('18/30')
+  await expect(text('running-total-1')).toHaveText('31')
+
+  await cell(page, 1, 0).click()
+  await page.getByTestId('delete-end').click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Borrar', exact: true }).click()
+  await expect(text('end-total-1')).toHaveText('')
+  await expect(text('running-total-1')).toHaveText('')
+  await expect(text('grand-total')).toHaveText('TOTAL GENERAL: 18/600')
+  await expect(text('average')).toHaveText('Promedio: 6.00')
+})
+
+test('a closed session shows its totals read-only', async ({ page }) => {
+  const url = await seed(page, { closed: true, filledRows: 2 })
+  await page.goto(`./${url}`)
+  await expect(page.getByTestId('end-total-1')).toHaveText('27/30')
+  await expect(page.getByTestId('running-total-1')).toHaveText('54')
+  await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 54/600')
+  await expect(page.getByTestId('average')).toHaveText('Promedio: 9.00')
+})
+
+/**
+ * Asserts the scoresheet fits the scroller at 375 px: tables inside the scroller and the
+ * viewport, no header/total cell whose text overflows (the scroller and fixed layout clip it
+ * silently), arrow buttons ≥ 48 px tall.
+ */
+async function expectGridFits(page: Page) {
+  const m = await page.evaluate(() => {
+    const scroller = document.querySelector('.grid-scroller')!.getBoundingClientRect()
+    const tables = Array.from(document.querySelectorAll('table.series')).map((t) => {
+      const r = t.getBoundingClientRect()
+      return { left: r.left, right: r.right }
+    })
+    const overflowing = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'table.series th, td.total, td.series-total, [data-testid="grand-total"], [data-testid="average"]',
+      ),
+    )
+      .filter((el) => el.scrollWidth > el.clientWidth)
+      .map((el) => `${el.dataset.testid ?? el.tagName}: ${el.textContent?.trim()}`)
+    const cellsOutside = Array.from(document.querySelectorAll('table.series th, table.series td'))
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.left < 0 || r.right > window.innerWidth).length
+    const buttonHeights = Array.from(document.querySelectorAll('td.score-cell button')).map(
+      (b) => b.getBoundingClientRect().height,
+    )
+    const buttonWidths = Array.from(document.querySelectorAll('td.score-cell button')).map(
+      (b) => b.getBoundingClientRect().width,
+    )
+    return {
+      scroller: { left: scroller.left, right: scroller.right },
+      tables,
+      overflowing,
+      cellsOutside,
+      minButtonHeight: Math.min(...buttonHeights),
+      minButtonWidth: Math.min(...buttonWidths),
+      docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }
+  })
+  expect(m.tables.length).toBeGreaterThan(0)
+  for (const t of m.tables) {
+    expect(t.left).toBeGreaterThanOrEqual(m.scroller.left - 0.5)
+    expect(t.right).toBeLessThanOrEqual(m.scroller.right + 0.5)
+  }
+  expect(m.overflowing).toEqual([])
+  expect(m.cellsOutside).toBe(0)
+  expect(m.minButtonHeight).toBeGreaterThanOrEqual(48)
+  // Narrower than 48 px by design (6 arrows + totals in 343 px), but still a usable target.
+  expect(m.minButtonWidth).toBeGreaterThanOrEqual(32)
+  expect(m.docOverflow).toBe(0)
+}
+
+test('worst case fits 375 px: WA 122 2×6×6 with series 1 all X («60/60», «360»)', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  const ends = Array.from({ length: 12 }, (_, r) =>
+    Array.from({ length: 6 }, () => (r < 6 ? 'X' : null)),
+  )
+  const url = await seed(page, {
+    faceId: 'wa-122',
+    seriesCount: 2,
+    endsPerSeries: 6,
+    arrowsPerEnd: 6,
+    ends,
+  })
+  await page.goto(`./${url}`)
+  expect(page.viewportSize()?.width).toBe(375)
+  await expect(page.locator('thead').first().locator('th')).toHaveText([
+    'T.',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    'Total',
+    'Acum.',
+  ])
+  await expect(page.getByTestId('end-total-0')).toHaveText('60/60')
+  await expect(page.getByTestId('running-total-5')).toHaveText('360')
+  await expect(page.getByTestId('series-total-0')).toHaveText('Total Serie 1: 360/360')
+  await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 360/720')
+  await expect(page.getByTestId('average')).toHaveText('Promedio: 10.00')
+  await expectGridFits(page)
+
+  // Scoring into the 6-arrow grid works and the row still fits.
+  await expectSelected(page, 6, 0)
+  for (let i = 0; i < 6; i++)
+    await page.getByRole('button', { name: 'Anotar X', exact: true }).click()
+  await expect(page.getByTestId('end-total-6')).toHaveText('60/60')
+  await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 420/720')
+  await expectGridFits(page)
+  expect(problems).toEqual([])
+})
+
+test('WA 40 2×10×3 with full ends («30/30», «300») fits 375 px too', async ({ page }) => {
+  const ends = Array.from({ length: 20 }, (_, r) => (r < 10 ? ['X', 'X', 'X'] : ['10', '10', '10']))
+  const url = await seed(page, { ends })
+  await page.goto(`./${url}`)
+  await expect(page.getByTestId('end-total-0')).toHaveText('30/30')
+  await expect(page.getByTestId('running-total-9')).toHaveText('300')
+  await expect(page.getByTestId('series-total-1')).toHaveText('Total Serie 2: 300/300')
+  await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 600/600')
+  await expectGridFits(page)
 })
