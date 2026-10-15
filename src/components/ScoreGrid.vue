@@ -159,27 +159,31 @@ abbr {
   text-decoration: none;
 }
 
+/*
+ * Sized for wide fallback fonts (Verdana / DejaVu Sans on Linux), not just the macOS system font:
+ * «60/60» and «Acum.» must fit with any common sans. Arrow columns keep ~34 px at 375 px.
+ */
 .col-end {
-  width: 2rem;
+  width: 1.875rem;
 }
 
 .col-total {
+  width: 3.375rem;
+}
+
+.col-running {
   width: 2.875rem;
 }
 
-/* Wide enough for the «Acum.» header at 0.75rem. */
-.col-running {
-  width: 2.5rem;
-}
-
 .total-head {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
 }
 
 .total {
   padding: 0 2px;
   text-align: center;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  letter-spacing: -0.02em;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
