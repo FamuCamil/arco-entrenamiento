@@ -10,7 +10,7 @@ Statuses:
 
 | # | File | Title | Status | Updated |
 |---|------|-------|--------|---------|
-| 01 | [use-cases/01-anotar-flechas.md](use-cases/01-anotar-flechas.md) | CU-03 Anotar flechas | in-progress | 2026-10-15 |
+| 01 | [use-cases/01-anotar-flechas.md](use-cases/01-anotar-flechas.md) | CU-03 Anotar flechas | done | 2026-10-15 |
 | 02 | [use-cases/02-corregir-flecha.md](use-cases/02-corregir-flecha.md) | CU-04 Corregir flecha | pending | 2026-10-15 |
 | 03 | [use-cases/03-borrar-flecha-tanda.md](use-cases/03-borrar-flecha-tanda.md) | CU-05 Borrar flecha / borrar tanda | pending | 2026-10-15 |
 | 04 | [use-cases/04-orden-automatico.md](use-cases/04-orden-automatico.md) | CU-06 Orden automático | pending | 2026-10-15 |
