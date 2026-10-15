@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dev-dist/
+.vite/
+
+# Tests
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Local env / editor / OS
+*.local
+.env*.local
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

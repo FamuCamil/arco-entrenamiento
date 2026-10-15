@@ -1,0 +1,9 @@
+# Bash command prefixes the dev-team is allowed to run for this project.
+# Each entry maps to a Bash(<prefix>:*) permission rule, granted by the
+# develop skill's Step 3a before agents are spawned.
+commands:
+  - npm
+  - npx
+  - /opt/homebrew/bin/npm
+  - /opt/homebrew/bin/npx
+  - /opt/homebrew/bin/node
