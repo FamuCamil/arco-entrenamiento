@@ -43,3 +43,58 @@ export function sortEnd(end: End, face: TargetFace): End {
   }
   return [...end].sort((a, b) => rank(a) - rank(b))
 }
+
+/** Highest zone points on the face (10 on WA 40, 6 on field, 11 on 3D); 0 with no zones. */
+export function maxArrowPoints(face: TargetFace): number {
+  return face.zones.reduce((max, z) => Math.max(max, z.points), 0)
+}
+
+/** Sum of the end's zone points; empties count 0. */
+export function endTotal(end: End, face: TargetFace): number {
+  return end.reduce((sum, key) => sum + zonePoints(key, face), 0)
+}
+
+/**
+ * Series running total: from the first end of the row's series (floor(row / endsPerSeries))
+ * up to the row, inclusive. 0 for a row out of range.
+ */
+export function seriesRunningTotal(
+  ends: End[],
+  row: number,
+  endsPerSeries: number,
+  face: TargetFace,
+): number {
+  if (!Number.isInteger(row) || row < 0 || row >= ends.length || endsPerSeries < 1) return 0
+  const first = Math.floor(row / endsPerSeries) * endsPerSeries
+  let sum = 0
+  for (let r = first; r <= row; r++) sum += endTotal(ends[r]!, face)
+  return sum
+}
+
+/** Total of series `series` (0-based); 0 for a series out of range. */
+export function seriesTotal(
+  ends: End[],
+  series: number,
+  endsPerSeries: number,
+  face: TargetFace,
+): number {
+  if (!Number.isInteger(series) || series < 0 || endsPerSeries < 1) return 0
+  return ends
+    .slice(series * endsPerSeries, (series + 1) * endsPerSeries)
+    .reduce((sum, end) => sum + endTotal(end, face), 0)
+}
+
+/** Total of every end of the session. */
+export function grandTotal(ends: End[], face: TargetFace): number {
+  return ends.reduce((sum, end) => sum + endTotal(end, face), 0)
+}
+
+/**
+ * Average points per arrow shot (non-empty cells), rounded to 2 decimals; null when no arrow
+ * was shot.
+ */
+export function averagePerArrow(ends: End[], face: TargetFace): number | null {
+  const shot = ends.reduce((n, end) => n + end.filter((key) => key !== null).length, 0)
+  if (shot === 0) return null
+  return Math.round((grandTotal(ends, face) * 100) / shot) / 100
+}
