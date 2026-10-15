@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import ScoreActions from '@/components/ScoreActions.vue'
 import ScoreGrid from '@/components/ScoreGrid.vue'
 import ScoreKeypad from '@/components/ScoreKeypad.vue'
+import { useConfirm } from '@/composables/useConfirm'
 import { useScoring } from '@/composables/useScoring'
 
 const props = defineProps<{
@@ -10,10 +13,38 @@ const props = defineProps<{
   archerId: string
 }>()
 
-const { session, archer, face, selected, isLocked, select, score, activeRowRef } = useScoring(
-  props.id,
-  props.archerId,
-)
+const {
+  session,
+  archer,
+  face,
+  selected,
+  isLocked,
+  select,
+  score,
+  canDeleteArrow,
+  canDeleteEnd,
+  deleteArrow,
+  deleteEnd,
+  activeRowRef,
+} = useScoring(props.id, props.archerId)
+const { confirm } = useConfirm()
+
+const actions = ref<InstanceType<typeof ScoreActions> | null>(null)
+
+/** Asks before emptying the whole end; nothing changes on cancel. */
+async function confirmDeleteEnd() {
+  if (!session.value) return
+  const { row } = selected.value
+  const series = Math.floor(row / session.value.endsPerSeries) + 1
+  const end = (row % session.value.endsPerSeries) + 1
+  const ok = await confirm({
+    title: '¿Borrar la tanda?',
+    message: `Se borrarán todas las flechas de la serie ${series}, tanda ${end}. No se puede deshacer.`,
+    confirmLabel: 'Borrar',
+    returnFocusTo: actions.value?.endButton ?? undefined,
+  })
+  if (ok) deleteEnd()
+}
 
 function registerActiveRow(el: HTMLElement) {
   activeRowRef.value = el
@@ -44,7 +75,16 @@ function registerActiveRow(el: HTMLElement) {
       </svg>
       <span>Sesión finalizada — solo lectura</span>
     </div>
-    <ScoreKeypad v-else class="keypad" :face="face" @score="score" />
+    <div v-else class="controls">
+      <ScoreKeypad :face="face" @score="score" />
+      <ScoreActions
+        ref="actions"
+        :can-delete-arrow="canDeleteArrow"
+        :can-delete-end="canDeleteEnd"
+        @delete-arrow="deleteArrow"
+        @delete-end="confirmDeleteEnd"
+      />
+    </div>
   </section>
 
   <section v-else class="not-found">
@@ -75,9 +115,15 @@ function registerActiveRow(el: HTMLElement) {
   overflow-x: hidden;
 }
 
-.keypad,
+.controls,
 .locked {
   flex: none;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .locked {

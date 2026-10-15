@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
+
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 </script>
 
 <template>
@@ -10,6 +12,7 @@ import { RouterView } from 'vue-router'
     <!-- Keyed by path: views read route params once, so a new URL mounts a fresh view. -->
     <RouterView :key="$route.path" />
   </main>
+  <ConfirmDialog />
 </template>
 
 <style scoped>
