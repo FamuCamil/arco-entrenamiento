@@ -226,6 +226,92 @@ describe('setArrow', () => {
   })
 })
 
+describe('deleteEnd', () => {
+  function setup(overrides = {}) {
+    const session = makeSession(overrides)
+    session.archers[0]!.ends[0] = ['X', '9', '8']
+    session.archers[0]!.ends[1] = ['7', null, '5']
+    session.archers[0]!.ends[2] = ['4', '3', '2']
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([session])))
+    const store = useSessionsStore()
+    return { store, ends: () => store.getArcher('s1', 'a1')!.ends }
+  }
+
+  it('empties only the target end, bumps updatedAt and persists', async () => {
+    const { store, ends } = setup()
+    vi.useFakeTimers()
+    vi.setSystemTime(7000)
+    store.deleteEnd('s1', 'a1', 1)
+    expect(ends()[0]).toEqual(['X', '9', '8'])
+    expect(ends()[1]).toEqual([null, null, null])
+    expect(ends()[2]).toEqual(['4', '3', '2'])
+    expect(store.getSession('s1')!.updatedAt).toBe(7000)
+    await nextTick()
+    expect(stored().sessions[0].archers[0].ends[1]).toEqual([null, null, null])
+    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['X', '9', '8'])
+    expect(stored().sessions[0].updatedAt).toBe(7000)
+  })
+
+  it('empties a complete end in place (same array, same length)', () => {
+    const { store, ends } = setup()
+    const row = ends()[0]
+    store.deleteEnd('s1', 'a1', 0)
+    expect(ends()[0]).toBe(row)
+    expect(row).toEqual([null, null, null])
+  })
+
+  it('empties the last end of the session', () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 19, 0, 'X')
+    store.deleteEnd('s1', 'a1', 19)
+    expect(ends()[19]).toEqual([null, null, null])
+  })
+
+  it('setArrow(null) on a complete end leaves a gap and does not reorder (CU-06 pitfall)', () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 0, 1, null)
+    expect(ends()[0]).toEqual(['X', null, '8'])
+  })
+
+  const noops: [string, (store: ReturnType<typeof useSessionsStore>) => void][] = [
+    ['an unknown session', (s) => s.deleteEnd('nope', 'a1', 0)],
+    ['an unknown archer', (s) => s.deleteEnd('s1', 'nope', 0)],
+    ['a negative row', (s) => s.deleteEnd('s1', 'a1', -1)],
+    ['a row past the end', (s) => s.deleteEnd('s1', 'a1', 20)],
+    ['a fractional row', (s) => s.deleteEnd('s1', 'a1', 0.5)],
+    ['a NaN row', (s) => s.deleteEnd('s1', 'a1', Number.NaN)],
+  ]
+
+  it.each(noops)('is a no-op for %s', async (_, act) => {
+    const { store } = setup()
+    const before = JSON.stringify(store.sessions)
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    act(store)
+    expect(JSON.stringify(store.sessions)).toBe(before)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it('is a no-op when the session is closed (values and updatedAt unchanged)', async () => {
+    const { store, ends } = setup({ closed: true })
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    store.deleteEnd('s1', 'a1', 0)
+    expect(ends()[0]).toEqual(['X', '9', '8'])
+    expect(store.getSession('s1')!.updatedAt).toBe(1)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it('setArrow(null) is also a no-op when the session is closed', () => {
+    const { store, ends } = setup({ closed: true })
+    store.setArrow('s1', 'a1', 0, 0, null)
+    expect(ends()[0]).toEqual(['X', '9', '8'])
+    expect(store.getSession('s1')!.updatedAt).toBe(1)
+  })
+})
+
 describe('persistence watch', () => {
   it('persists profileName changes', async () => {
     const store = useSessionsStore()
