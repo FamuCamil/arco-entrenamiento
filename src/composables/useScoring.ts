@@ -18,6 +18,17 @@ export function useScoring(sessionId: string, archerId: string) {
 
   const isLocked = computed(() => session.value?.closed ?? false)
 
+  /**
+   * Selects any cell, filled or empty (CU-04): the next key press writes or overwrites it.
+   * No-op when the session is closed, the archer is missing, or (row, col) is out of range.
+   */
+  function select(row: number, col: number): void {
+    if (isLocked.value || !archer.value) return
+    const end = Number.isInteger(row) ? archer.value.ends[row] : undefined
+    if (!end || !Number.isInteger(col) || col < 0 || col >= end.length) return
+    selected.value = { row, col }
+  }
+
   /** Writes `key` into the selected cell and advances. At the last cell the selection stays. */
   function score(key: string): void {
     if (isLocked.value || !archer.value) return
@@ -35,5 +46,5 @@ export function useScoring(sessionId: string, archerId: string) {
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' })
   })
 
-  return { session, archer, face, selected, isLocked, score, activeRowRef }
+  return { session, archer, face, selected, isLocked, select, score, activeRowRef }
 }

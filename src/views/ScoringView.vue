@@ -10,7 +10,7 @@ const props = defineProps<{
   archerId: string
 }>()
 
-const { session, archer, face, selected, isLocked, score, activeRowRef } = useScoring(
+const { session, archer, face, selected, isLocked, select, score, activeRowRef } = useScoring(
   props.id,
   props.archerId,
 )
@@ -30,6 +30,8 @@ function registerActiveRow(el: HTMLElement) {
         :ends-per-series="session.endsPerSeries"
         :selected="selected"
         :register-active-row="registerActiveRow"
+        :interactive="!isLocked"
+        @select="select"
       />
     </div>
 

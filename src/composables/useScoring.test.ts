@@ -156,6 +156,157 @@ describe('score', () => {
   })
 })
 
+describe('select', () => {
+  const partial = (): End[] => [
+    ['X', '9', '8'],
+    [null, null, null],
+    [null, null, null],
+  ]
+
+  it('selects any cell: filled, empty, or empty but not the first empty', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+    s.select(0, 1)
+    expect(s.selected.value).toEqual({ row: 0, col: 1 })
+    s.select(1, 0)
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+    s.select(2, 2)
+    expect(s.selected.value).toEqual({ row: 2, col: 2 })
+  })
+
+  it('does not write anything by itself', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 0)
+    expect(s.archer.value!.ends).toEqual(partial())
+  })
+
+  it('select then score overwrites a filled cell and advances to the next arrow', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 1)
+    s.score('7')
+    expect(s.archer.value!.ends[0]).toEqual(['X', '7', '8'])
+    expect(s.selected.value).toEqual({ row: 0, col: 2 })
+  })
+
+  it('a correction does not re-sort the end (sorting arrives with CU-06)', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 0)
+    s.score('1')
+    expect(s.archer.value!.ends[0]).toEqual(['1', '9', '8'])
+  })
+
+  it('writing the last arrow of an end wraps to the first arrow of the next end', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 2)
+    s.score('M')
+    expect(s.archer.value!.ends[0]).toEqual(['X', '9', 'M'])
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+  })
+
+  it('writing the last cell of the session keeps the selection there', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(2, 2)
+    s.score('5')
+    expect(s.archer.value!.ends[2]).toEqual([null, null, '5'])
+    expect(s.selected.value).toEqual({ row: 2, col: 2 })
+  })
+
+  it('out-of-order writing leaves earlier gaps empty', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(2, 0)
+    s.score('10')
+    s.score('9')
+    expect(s.archer.value!.ends).toEqual([
+      ['X', '9', '8'],
+      [null, null, null],
+      ['10', '9', null],
+    ])
+    expect(s.selected.value).toEqual({ row: 2, col: 2 })
+  })
+
+  it('a fresh composable (reload) selects the first gap, not the last written cell', () => {
+    seed(partial())
+    const first = useScoring('s1', 'a1')
+    first.select(2, 0)
+    first.score('10')
+    expect(useScoring('s1', 'a1').selected.value).toEqual({ row: 1, col: 0 })
+  })
+
+  it('persists the correction immediately', async () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    await nextTick()
+    s.select(0, 1)
+    s.score('6')
+    await nextTick()
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '6', '8'])
+  })
+
+  it('is a no-op when the session is closed', () => {
+    seed(partial(), { closed: true })
+    const s = useScoring('s1', 'a1')
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+    s.select(0, 1)
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+    s.score('1')
+    expect(s.archer.value!.ends).toEqual(partial())
+  })
+
+  it('is a no-op once the session becomes closed', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 1)
+    useSessionsStore().getSession('s1')!.closed = true
+    s.select(2, 2)
+    expect(s.selected.value).toEqual({ row: 0, col: 1 })
+  })
+
+  it('is a no-op for an unknown archer or session', () => {
+    seed()
+    const a = useScoring('s1', 'nope')
+    a.select(1, 1)
+    expect(a.selected.value).toEqual({ row: 0, col: 0 })
+    const b = useScoring('nope', 'a1')
+    b.select(1, 1)
+    expect(b.selected.value).toEqual({ row: 0, col: 0 })
+  })
+
+  it.each([
+    ['a negative row', -1, 0],
+    ['a row past the end', 3, 0],
+    ['a fractional row', 0.5, 0],
+    ['a NaN row', Number.NaN, 0],
+    ['a negative arrow', 1, -1],
+    ['an arrow past the end of the row', 1, 3],
+    ['a fractional arrow', 1, 1.5],
+    ['an infinite arrow', 1, Number.POSITIVE_INFINITY],
+  ])('is a no-op for %s', (_, row, col) => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(row, col)
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+  })
+
+  it('checks the arrow against the length of the selected row', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    // Hydration rejects ragged ends, so shorten a row in the live store.
+    s.archer.value!.ends[2] = [null, null]
+    s.select(2, 2)
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+    s.select(2, 1)
+    expect(s.selected.value).toEqual({ row: 2, col: 1 })
+  })
+})
+
 describe('activeRowRef', () => {
   function rowEl() {
     const el = document.createElement('tr')

@@ -110,6 +110,76 @@ describe('ScoringView', () => {
     expect(w.findAll('table')).toHaveLength(2)
   })
 
+  it('cells are buttons named by series, end, arrow and value', async () => {
+    const s = makeSession()
+    s.archers[0]!.ends[0] = ['X', 'M', null]
+    seed(s)
+    const w = await view()
+    expect(w.findAll('table button')).toHaveLength(60)
+    const name = (r: number, c: number) =>
+      w.get(`[data-testid="score-cell-${r}-${c}"] button`).attributes('aria-label')
+    expect(name(0, 0)).toBe('Serie 1, tanda 1, flecha 1: X')
+    expect(name(0, 1)).toBe('Serie 1, tanda 1, flecha 2: fallo')
+    expect(name(0, 2)).toBe('Serie 1, tanda 1, flecha 3: vacía')
+  })
+
+  it('tapping a filled cell selects it; the next key overwrites it and advances', async () => {
+    const s = makeSession()
+    s.archers[0]!.ends[0] = ['X', '9', 'M']
+    seed(s)
+    const w = await view()
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe('score-cell-1-0')
+    await w.get('[data-testid="score-cell-0-1"] button').trigger('click')
+    const current = w.findAll('[aria-current="true"]')
+    expect(current).toHaveLength(1)
+    expect(current[0]!.attributes('data-testid')).toBe('score-cell-0-1')
+    expect(current[0]!.classes()).toContain('is-selected')
+    expect(w.get('[data-testid="score-cell-1-0"]').classes()).not.toContain('is-selected')
+
+    await w.get('[data-testid="key-7"]').trigger('click')
+    expect(w.get('[data-testid="score-cell-0-1"]').text()).toBe('7')
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe('score-cell-0-2')
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[0]).toEqual(['X', '7', 'M'])
+    expect(w.get('[data-testid="score-cell-0-1"] button').attributes('aria-label')).toBe(
+      'Serie 1, tanda 1, flecha 2: 7',
+    )
+  })
+
+  it('tapping an empty cell past the first gap writes out of order and leaves the gap', async () => {
+    seed()
+    const w = await view()
+    await w.get('[data-testid="score-cell-2-2"] button').trigger('click')
+    await w.get('[data-testid="key-10"]').trigger('click')
+    expect(w.get('[data-testid="score-cell-2-2"]').text()).toBe('10')
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe('score-cell-3-0')
+    const ends = useSessionsStore().getArcher('s1', 'a1')!.ends
+    expect(ends[0]).toEqual([null, null, null])
+    expect(ends[2]).toEqual([null, null, '10'])
+  })
+
+  it('a closed session: no cell buttons, clicking a cell changes nothing', async () => {
+    const s = makeSession({ closed: true })
+    s.archers[0]!.ends[0] = ['X', '9', null]
+    seed(s)
+    const w = await view()
+    const before = w.get('[aria-current="true"]').attributes('data-testid')
+    expect(before).toBe('score-cell-0-2')
+    expect(w.findAll('table button')).toHaveLength(0)
+    await w.get('[data-testid="score-cell-0-0"]').trigger('click')
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe(before)
+    expect(w.get('[data-testid="score-cell-0-0"]').text()).toBe('X')
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[0]).toEqual(['X', '9', null])
+  })
+
+  it('with a gap left by out-of-order scoring, entry selects the first gap', async () => {
+    const s = makeSession()
+    s.archers[0]!.ends[0] = ['X', '9', '8']
+    s.archers[0]!.ends[2] = ['7', '6', '5']
+    seed(s)
+    const w = await view()
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe('score-cell-1-0')
+  })
+
   it.each([
     ['an unknown session', 'nope', 'a1'],
     ['an unknown archer', 's1', 'nope'],

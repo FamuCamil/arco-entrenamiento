@@ -10,7 +10,11 @@ const props = defineProps<{
   selected: Cell
   /** Receives the element of the selected row (for scrolling it into view). */
   registerActiveRow: (el: HTMLElement) => void
+  /** Cells can be selected (false in a closed session). */
+  interactive: boolean
 }>()
+
+const emit = defineEmits<{ select: [row: number, col: number] }>()
 
 /** Row indexes of `ends`, grouped by series: series of a row = floor(row / endsPerSeries). */
 const series = computed(() => {
@@ -23,6 +27,14 @@ const series = computed(() => {
 })
 
 const arrowsPerEnd = computed(() => props.ends[0]?.length ?? 0)
+
+/** Accessible name of a cell: series, end within the series, arrow and value. */
+function cellLabel(row: number, col: number, value: string | null): string {
+  const s = Math.floor(row / props.endsPerSeries) + 1
+  const end = (row % props.endsPerSeries) + 1
+  const shown = value === null ? 'vacía' : value === 'M' ? 'fallo' : value
+  return `Serie ${s}, tanda ${end}, flecha ${col + 1}: ${shown}`
+}
 
 // Stable function ref: Vue calls it with null when the row stops being active, which is ignored.
 function onActiveRow(el: Element | ComponentPublicInstance | null) {
@@ -57,7 +69,10 @@ function onActiveRow(el: Element | ComponentPublicInstance | null) {
             :key="col"
             :value="value"
             :selected="row === selected.row && col === selected.col"
+            :label="cellLabel(row, col, value)"
+            :interactive="interactive"
             :data-testid="`score-cell-${row}-${col}`"
+            @select="emit('select', row, col)"
           />
         </tr>
       </tbody>

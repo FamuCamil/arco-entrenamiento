@@ -149,6 +149,28 @@ describe('setArrow', () => {
     expect(ends()[0]![0]).toBe('M')
   })
 
+  it('overwriting a cell of a complete end changes only that cell, persists, and does not re-sort', async () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 0, 0, 'X')
+    store.setArrow('s1', 'a1', 0, 1, '9')
+    store.setArrow('s1', 'a1', 0, 2, '8')
+    store.setArrow('s1', 'a1', 1, 0, '7')
+    await nextTick()
+    store.setArrow('s1', 'a1', 0, 1, '2')
+    // CU-06 will sort ends; until then a correction stays in place.
+    expect(ends()[0]).toEqual(['X', '2', '8'])
+    expect(ends()[1]).toEqual(['7', null, null])
+    await nextTick()
+    expect(stored().sessions[0].archers[0].ends[0]).toEqual(['X', '2', '8'])
+  })
+
+  it('writes a later row while earlier rows are still empty', () => {
+    const { store, ends } = setup()
+    store.setArrow('s1', 'a1', 5, 1, '10')
+    expect(ends()[5]).toEqual([null, '10', null])
+    for (const r of [0, 1, 2, 3, 4]) expect(ends()[r]).toEqual([null, null, null])
+  })
+
   it('accepts null (clears the cell)', () => {
     const { store, ends } = setup()
     store.setArrow('s1', 'a1', 0, 0, '9')
