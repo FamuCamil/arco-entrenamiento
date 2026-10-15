@@ -16,4 +16,4 @@ Statuses:
 | 04 | [use-cases/04-orden-automatico.md](use-cases/04-orden-automatico.md) | CU-06 Orden automático | done | 2026-10-15 |
 | 05 | [use-cases/05-totales-en-vivo.md](use-cases/05-totales-en-vivo.md) | CU-07 Totales en vivo | done | 2026-10-15 |
 | 06 | [use-cases/06-instalar-en-movil.md](use-cases/06-instalar-en-movil.md) | CU-14 Instalar en el móvil | done | 2026-10-16 |
-| 07 | [use-cases/07-funcionar-sin-conexion.md](use-cases/07-funcionar-sin-conexion.md) | CU-13 Funcionar sin conexión | pending | 2026-10-15 |
+| 07 | [use-cases/07-funcionar-sin-conexion.md](use-cases/07-funcionar-sin-conexion.md) | CU-13 Funcionar sin conexión | done | 2026-10-16 |
