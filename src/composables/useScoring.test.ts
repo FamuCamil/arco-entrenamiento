@@ -182,21 +182,43 @@ describe('select', () => {
     expect(s.archer.value!.ends).toEqual(partial())
   })
 
-  it('select then score overwrites a filled cell and advances to the next arrow', () => {
+  it('select then score overwrites a filled cell, re-sorts the end and advances to the next arrow', () => {
     seed(partial())
     const s = useScoring('s1', 'a1')
     s.select(0, 1)
     s.score('7')
-    expect(s.archer.value!.ends[0]).toEqual(['X', '7', '8'])
+    expect(s.archer.value!.ends[0]).toEqual(['X', '8', '7'])
     expect(s.selected.value).toEqual({ row: 0, col: 2 })
   })
 
-  it('a correction does not re-sort the end (sorting arrives with CU-06)', () => {
+  it('a correction that moves the value advances from the touched cell (CU-06)', () => {
     seed(partial())
     const s = useScoring('s1', 'a1')
     s.select(0, 0)
     s.score('1')
-    expect(s.archer.value!.ends[0]).toEqual(['1', '9', '8'])
+    // '1' moved from col 0 to col 2, but the selection follows nextCell of (0, 0).
+    expect(s.archer.value!.ends[0]).toEqual(['9', '8', '1'])
+    expect(s.selected.value).toEqual({ row: 0, col: 1 })
+  })
+
+  it('a correction in the last column re-sorts and wraps to the next end (CU-06)', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(0, 2)
+    s.score('10')
+    expect(s.archer.value!.ends[0]).toEqual(['X', '10', '9'])
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
+  })
+
+  it('completing an end out of order sorts it and moves on to the next end (CU-06)', () => {
+    seed()
+    const s = useScoring('s1', 'a1')
+    s.score('7')
+    s.score('M')
+    expect(s.archer.value!.ends[0]).toEqual(['7', 'M', null])
+    s.score('X')
+    expect(s.archer.value!.ends[0]).toEqual(['X', '7', 'M'])
+    expect(s.selected.value).toEqual({ row: 1, col: 0 })
   })
 
   it('writing the last arrow of an end wraps to the first arrow of the next end', () => {
@@ -239,7 +261,7 @@ describe('select', () => {
     expect(useScoring('s1', 'a1').selected.value).toEqual({ row: 1, col: 0 })
   })
 
-  it('persists the correction immediately', async () => {
+  it('persists the re-sorted correction immediately', async () => {
     seed(partial())
     const s = useScoring('s1', 'a1')
     await nextTick()
@@ -247,7 +269,7 @@ describe('select', () => {
     s.score('6')
     await nextTick()
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
-    expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '6', '8'])
+    expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '8', '6'])
   })
 
   it('is a no-op when the session is closed', () => {

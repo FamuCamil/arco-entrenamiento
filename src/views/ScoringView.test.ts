@@ -90,6 +90,24 @@ describe('ScoringView', () => {
     expect(useSessionsStore().getArcher('s1', 'a1')!.ends[0]).toEqual(['X', '9', 'M'])
   })
 
+  it('completing an end out of order renders it sorted at once (CU-06)', async () => {
+    seed()
+    const w = await view()
+    for (const key of ['7', 'M', 'X']) await w.get(`[data-testid="key-${key}"]`).trigger('click')
+    expect(w.get('[data-testid="score-cell-0-0"]').text()).toBe('X')
+    expect(w.get('[data-testid="score-cell-0-1"]').text()).toBe('7')
+    expect(w.get('[data-testid="score-cell-0-2"]').text()).toBe('M')
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe('score-cell-1-0')
+
+    // A correction that moves the value: the selection advances from the touched cell.
+    await w.get('[data-testid="score-cell-0-0"] button').trigger('click')
+    await w.get('[data-testid="key-5"]').trigger('click')
+    expect(w.get('[data-testid="score-cell-0-0"]').text()).toBe('7')
+    expect(w.get('[data-testid="score-cell-0-1"]').text()).toBe('5')
+    expect(w.get('[data-testid="score-cell-0-2"]').text()).toBe('M')
+    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe('score-cell-0-1')
+  })
+
   it('scrolls the active row into view on entry and on row change', async () => {
     seed()
     const w = await view()
