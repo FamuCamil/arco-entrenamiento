@@ -33,7 +33,6 @@ const emit = defineEmits<{ select: [] }>()
 
 <style scoped>
 .score-cell {
-  min-width: 2.75rem;
   height: var(--touch-min);
   padding: 0 var(--space-1);
   text-align: center;
