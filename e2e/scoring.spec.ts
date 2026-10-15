@@ -35,11 +35,13 @@ async function openTestSession(page: Page) {
 /** Seeds one WA 40 2×10×3 session before the app boots (only if storage is still empty). */
 async function seed(
   page: Page,
-  opts: { closed?: boolean; filledRows?: number } = {},
+  opts: { closed?: boolean; filledRows?: number; ends?: (string | null)[][] } = {},
 ): Promise<string> {
-  const ends = Array.from({ length: 20 }, (_, r) =>
-    r < (opts.filledRows ?? 0) ? ['X', '9', '8'] : [null, null, null],
-  )
+  const ends =
+    opts.ends ??
+    Array.from({ length: 20 }, (_, r) =>
+      r < (opts.filledRows ?? 0) ? ['X', '9', '8'] : [null, null, null],
+    )
   const state = {
     version: 1,
     profileName: '',
@@ -210,6 +212,114 @@ test('a closed session shows the lock and no keypad', async ({ page }) => {
   await expect(page.getByRole('group', { name: 'Teclado de puntuación' })).toHaveCount(0)
   await expect(page.locator('table')).toHaveCount(2)
   expect(problems).toEqual([])
+})
+
+test('corrects an arrow by tapping it; the correction survives a reload', async ({ page }) => {
+  const problems = trackConsole(page)
+  await openTestSession(page)
+  for (const name of ['Anotar X', 'Anotar 9', 'Anotar fallo'])
+    await page.getByRole('button', { name, exact: true }).click()
+  await expectSelected(page, 1, 0)
+
+  await cell(page, 0, 1).click()
+  await expectSelected(page, 0, 1)
+  await expect(cell(page, 1, 0)).not.toHaveClass(/is-selected/)
+  await page.getByRole('button', { name: 'Anotar 7', exact: true }).click()
+  await expect(cell(page, 0, 1)).toHaveText('7')
+  await expectSelected(page, 0, 2)
+  // No re-sorting of the end (CU-06).
+  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '7', 'M'])
+  const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
+  expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '7', 'M'])
+
+  await page.reload()
+  await expect(page.getByTestId('score-row-0').locator('td')).toHaveText(['X', '7', 'M'])
+  await expectSelected(page, 1, 0)
+  expect(problems).toEqual([])
+})
+
+test('cells are ≥48 px tall, named, reachable with Tab and selectable with Enter/Space', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  const url = await seed(page, { filledRows: 1 })
+  await page.goto(`./${url}`)
+  await expectSelected(page, 1, 0)
+
+  for (const [r, c] of [
+    [0, 0],
+    [0, 2],
+    [1, 1],
+  ] as const) {
+    const box = (await cell(page, r, c).boundingBox())!
+    expect(box.height).toBeGreaterThanOrEqual(48)
+    const btn = (await cell(page, r, c).getByRole('button').boundingBox())!
+    expect(btn.height).toBeGreaterThanOrEqual(48)
+  }
+
+  const second = page.getByRole('button', { name: 'Serie 1, tanda 1, flecha 2: 9', exact: true })
+  await expect(second).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Serie 1, tanda 2, flecha 1: vacía', exact: true }),
+  ).toBeVisible()
+
+  // Enter on a focused cell selects it.
+  await second.focus()
+  await page.keyboard.press('Enter')
+  await expectSelected(page, 0, 1)
+
+  // Tab moves to the next cell; the keyboard focus ring is visible; Space selects it.
+  await page.keyboard.press('Tab')
+  const third = cell(page, 0, 2).getByRole('button')
+  await expect(third).toBeFocused()
+  await expect(third).toHaveCSS('outline-style', 'dashed')
+  await page.keyboard.press('Space')
+  await expectSelected(page, 0, 2)
+
+  // The keyboard selection is a real selection: the next key overwrites that cell.
+  await page.getByRole('button', { name: 'Anotar 5', exact: true }).click()
+  await expect(cell(page, 0, 2)).toHaveText('5')
+  await expectSelected(page, 1, 0)
+  expect(problems).toEqual([])
+})
+
+test('a closed session: tapping a cell changes neither selection nor value', async ({ page }) => {
+  const problems = trackConsole(page)
+  const url = await seed(page, { closed: true, filledRows: 1 })
+  await page.goto(`./${url}`)
+  await expectSelected(page, 1, 0)
+  await expect(page.locator('table button')).toHaveCount(0)
+  await cell(page, 0, 1).click()
+  await expectSelected(page, 1, 0)
+  await expect(cell(page, 0, 1)).toHaveText('9')
+  const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
+  expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '9', '8'])
+  expect(problems).toEqual([])
+})
+
+test('with a gap left by out-of-order scoring, the first gap is selected on load', async ({
+  page,
+}) => {
+  const ends = Array.from({ length: 20 }, (_, r) =>
+    r === 0 || r === 2 ? ['X', '9', '8'] : [null, null, null],
+  )
+  const url = await seed(page, { ends })
+  await page.goto(`./${url}`)
+  await expectSelected(page, 1, 0)
+  await page.reload()
+  await expectSelected(page, 1, 0)
+})
+
+test('scoring out of order: tap a later empty cell, write, and the gap stays', async ({ page }) => {
+  await openTestSession(page)
+  await cell(page, 2, 0).click()
+  await expectSelected(page, 2, 0)
+  await page.getByRole('button', { name: 'Anotar 10', exact: true }).click()
+  await expect(cell(page, 2, 0)).toHaveText('10')
+  await expectSelected(page, 2, 1)
+  await page.reload()
+  await expect(cell(page, 2, 0)).toHaveText('10')
+  await expectSelected(page, 0, 0)
 })
 
 for (const [name, path] of [
