@@ -32,7 +32,7 @@ build:
     build: "npm run build"
     test_e2e: "npm run test:e2e"
 paths:
-  production: ["src/**", "public/**", "index.html", "vite.config.ts", "tsconfig*.json", "env.d.ts", "package.json", "package-lock.json", "eslint.config.js", ".prettierrc.json", "playwright.config.ts", ".github/**"]
+  production: ["src/**", "public/**", "scripts/**", "index.html", "README.md", "vite.config.ts", "tsconfig*.json", "env.d.ts", "package.json", "package-lock.json", "eslint.config.js", ".prettierrc.json", "playwright.config.ts", ".github/**"]
   test: ["src/**/*.test.ts", "tests/**", "e2e/**"]
   api_boundary: []
 test:

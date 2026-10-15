@@ -11,7 +11,9 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      // Icons (and includeAssets) are added by the F0 use case (CU-14).
+      // Icons live in public/ and are generated from public/favicon.svg (`npm run icons`).
+      // Manifest icons are precached automatically; the other icons are listed here.
+      includeAssets: ['favicon.svg', 'favicon-32x32.png', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'Arco · Entrenamientos',
         short_name: 'Arco',
@@ -21,8 +23,18 @@ export default defineConfig({
         start_url: './',
         scope: './',
         theme_color: '#111827',
-        background_color: '#ffffff',
-        icons: [],
+        background_color: '#111827',
+        // Relative src values: resolved against the manifest URL under the Pages subpath.
+        icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          {
+            src: 'maskable-icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
       },
     }),
   ],
