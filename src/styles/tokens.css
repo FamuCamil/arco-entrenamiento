@@ -13,6 +13,8 @@
   --color-accent-contrast: #ffffff;
   --color-danger: #dc2626;
   --color-focus: #2563eb;
+  --color-selected-bg: #dbeafe;
+  --color-selected-border: #2563eb;
 
   /* Scoring-zone colors (brief: Domain > Target-face catalog) */
   --zone-yellow: #facc15;
@@ -53,6 +55,8 @@
     --color-accent-contrast: #0b0f17;
     --color-danger: #f87171;
     --color-focus: #93c5fd;
+    --color-selected-bg: #1e3a8a;
+    --color-selected-border: #93c5fd;
   }
 }
 
@@ -71,6 +75,14 @@ body {
   font-size: var(--font-size-base);
   -webkit-text-size-adjust: 100%;
   overflow-x: hidden;
+}
+
+/* App shell: header + main fill the viewport, main owns the scrolling. */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
 }
 
 :focus-visible {
