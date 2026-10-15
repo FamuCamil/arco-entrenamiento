@@ -50,8 +50,8 @@ vcs:
   default_branch: main
   remote: https://github.com/FamuCamil/arco-entrenamiento.git
 use_cases:
-  index: null
-  folder: null
+  index: USE_CASES.md
+  folder: use-cases/
 ---
 
 # Project Brief
@@ -459,6 +459,11 @@ None
 - **hot_reload:** Vite dev server HMR (`npm run dev`). Phone testing over LAN with `vite --host` (hence the `crypto.randomUUID` fallback).
 - **seed_data:** none in the app. Test fixtures in `*.test.ts` / `tests/`.
 - **migrations:** persisted-state schema migrations in `usePersistence` (`version` field).
+
+## Use Cases
+
+Use cases are captured individually under `use-cases/` and indexed in `USE_CASES.md`.
+
 
 ## Scaffolding Plan
 
