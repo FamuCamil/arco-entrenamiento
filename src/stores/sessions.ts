@@ -224,6 +224,16 @@ export const useSessionsStore = defineStore('sessions', () => {
     if (changed) session.updatedAt = Date.now()
   }
 
+  /**
+   * Deletes a session and all its arrows (CU-12). A missing id is a no-op; the other sessions are
+   * left untouched (same objects). Persisted by the state watch below.
+   */
+  function deleteSession(id: string): void {
+    const index = sessions.value.findIndex((s) => s.id === id)
+    if (index === -1) return
+    sessions.value.splice(index, 1)
+  }
+
   /** The whole state as backup JSON (CU-11). Works with zero sessions. */
   function exportJson(now: Date = new Date()): string {
     return serializeBackup(
@@ -283,6 +293,7 @@ export const useSessionsStore = defineStore('sessions', () => {
     deleteEnd,
     setClosed,
     updateSession,
+    deleteSession,
     exportJson,
     importJson,
   }
