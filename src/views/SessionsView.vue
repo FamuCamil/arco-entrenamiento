@@ -1,13 +1,18 @@
 <script setup lang="ts">
-// TODO(CU-09): provisional list (date and location only); CU-09 replaces it with the session
-// cards, plus export/import (CU-15).
-import { RouterLink, useRouter } from 'vue-router'
+// Home: session cards, most recent first (CU-09). Export/import (CU-15) is still pending.
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 
-import { formatDisplayDate } from '@/domain/dates'
+import SessionCard from '@/components/SessionCard.vue'
 import { useSessionsStore } from '@/stores/sessions'
 
 const router = useRouter()
 const store = useSessionsStore()
+
+/** Sessions without an archer (defensive; shouldn't exist) have nothing to open, so no card. */
+const listedSessions = computed(() =>
+  store.sortedSessions.filter((session) => session.archers[0] !== undefined),
+)
 
 function newSession() {
   void router.push({ name: 'new-session' })
@@ -18,15 +23,9 @@ function newSession() {
   <section>
     <h2>Sesiones</h2>
     <button type="button" class="new-session" @click="newSession">Nueva sesión</button>
-    <ul v-if="store.sortedSessions.length > 0" class="session-list" aria-label="Sesiones guardadas">
-      <li v-for="session in store.sortedSessions" :key="session.id">
-        <RouterLink
-          v-if="session.archers[0]"
-          class="session-link"
-          :to="{ name: 'scoring', params: { id: session.id, archerId: session.archers[0].id } }"
-        >
-          {{ formatDisplayDate(session.date) }} · {{ session.location.trim() || 'Sin lugar' }}
-        </RouterLink>
+    <ul v-if="listedSessions.length > 0" class="session-list" aria-label="Sesiones guardadas">
+      <li v-for="session in listedSessions" :key="session.id">
+        <SessionCard :session="session" />
       </li>
     </ul>
     <p v-else class="empty">Todavía no hay sesiones de entrenamiento.</p>
@@ -57,18 +56,5 @@ function newSession() {
   margin: var(--space-4) 0 0;
   padding: 0;
   list-style: none;
-}
-
-.session-link {
-  display: flex;
-  align-items: center;
-  min-height: var(--touch-min);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  text-decoration: none;
-  overflow-wrap: anywhere;
 }
 </style>
