@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 // Browser globals are used inside page.evaluate callbacks; tsconfig.node.json has no DOM lib.
 
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const STORAGE_KEY = 'archery-training:v1'
 const KEYS = ['X', '10', '9', '8', '7', '6', '5', '4', '3', '2', '1', 'M']
@@ -89,6 +89,17 @@ async function seed(
     [STORAGE_KEY, JSON.stringify(state)] as const,
   )
   return '#/session/seed-session/score/seed-archer'
+}
+
+/** ≥48 px tall and fully inside the viewport. */
+async function expectInViewportAndTall(page: Page, target: Locator) {
+  const viewport = page.viewportSize()!
+  const box = (await target.boundingBox())!
+  expect(box.height).toBeGreaterThanOrEqual(48)
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
 }
 
 test('scores a full end, advances the selection and keeps it after reload', async ({ page }) => {
@@ -182,6 +193,26 @@ test('fits 375 px: no horizontal scroll, keypad fully visible with ≥48 px keys
   expect(finalize.y).toBeGreaterThanOrEqual(0)
   expect(finalize.x + finalize.width).toBeLessThanOrEqual(viewport.width)
   expect(finalize.y + finalize.height).toBeLessThanOrEqual(viewport.height)
+
+  // CU-08: «Resumen» sits in the header, ≥48 px, without pushing the keypad or «Finalizar» out.
+  const summaryLink = page.getByRole('link', { name: 'Resumen' })
+  await expect(summaryLink).toHaveAttribute('data-testid', 'open-summary')
+  await expectInViewportAndTall(page, page.getByTestId('open-summary'))
+
+  // Margin for CI's wider Linux fonts: every glyph 10 % wider in the header still fits.
+  await page.addStyleTag({ content: '.scoring-header { letter-spacing: 0.1em; }' })
+  await expectInViewportAndTall(page, page.getByTestId('open-summary'))
+  await expectInViewportAndTall(page, page.getByTestId('close-session'))
+  for (const key of await keys.all()) await expectInViewportAndTall(page, key)
+  const wide = await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>('.app-main')!
+    return {
+      main: main.scrollWidth - main.clientWidth,
+      doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }
+  })
+  expect(wide.main).toBeLessThanOrEqual(0)
+  expect(wide.doc).toBeLessThanOrEqual(0)
 
   // Safe areas: the page opts into viewport-fit=cover and the layout pads with env(safe-area-inset-*).
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(

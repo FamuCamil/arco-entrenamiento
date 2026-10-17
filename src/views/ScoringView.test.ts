@@ -36,12 +36,20 @@ function seed(session: Session = makeSession()) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([session])))
 }
 
+/** Stub for the CU-08 summary route: «Resumen» links and the finalize push resolve against it. */
+const SUMMARY_STUB = {
+  path: '/session/:id/summary',
+  name: 'summary',
+  component: { template: '<div />' },
+}
+
 async function view(id = 's1', archerId = 'a1') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div />' } },
       { path: '/session/:id/score/:archerId', component: ScoringView, props: true },
+      SUMMARY_STUB,
     ],
   })
   await router.push(`/session/${id}/score/${archerId}`)
@@ -233,7 +241,10 @@ describe('ScoringView', () => {
 async function viewWithDialog() {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/session/:id/score/:archerId', component: ScoringView, props: true }],
+    routes: [
+      { path: '/session/:id/score/:archerId', component: ScoringView, props: true },
+      SUMMARY_STUB,
+    ],
   })
   await router.push('/session/s1/score/a1')
   const Host = defineComponent(() => () => [
@@ -242,7 +253,7 @@ async function viewWithDialog() {
   ])
   const w = mount(Host, { global: { plugins: [router] }, attachTo: document.body })
   await flushPromises()
-  return w
+  return Object.assign(w, { router })
 }
 
 function seedPartial() {
@@ -571,7 +582,7 @@ describe('ScoringView finalize / reopen (CU-10)', () => {
     expect(document.activeElement).toBe(w.get('[data-testid="close-session"]').element)
   })
 
-  it('Finalizar locks the session: lock shown, controls gone, data kept, focus on «Reabrir sesión»', async () => {
+  it('Finalizar locks the session and opens its summary (CU-08); data kept', async () => {
     seedPartial()
     const w = await viewWithDialog()
     await openFinalizeDialog(w)
@@ -579,27 +590,37 @@ describe('ScoringView finalize / reopen (CU-10)', () => {
     await flushPromises()
     expect(w.find('[role="dialog"]').exists()).toBe(false)
     expect(closed()).toBe(true)
+    // AC8 (CU-08): navigation replaces the old focus on «Reabrir sesión»; the summary owns focus.
+    const route = w.router.currentRoute.value
+    expect(route.name).toBe('summary')
+    expect(route.params.id).toBe('s1')
+    expect(route.query.archer).toBe('a1')
+    // The host keeps ScoringView mounted (no RouterView): it now renders the locked state.
     expect(w.get('[role="status"]').text()).toBe('Sesión finalizada — solo lectura')
     expect(w.get('[role="status"] svg').attributes('aria-hidden')).toBe('true')
     expect(w.find('[aria-label="Teclado de puntuación"]').exists()).toBe(false)
     expect(w.find('[aria-label="Acciones de borrado"]').exists()).toBe(false)
-    expect(w.find('[data-testid="delete-arrow"]').exists()).toBe(false)
-    expect(w.find('[data-testid="delete-end"]').exists()).toBe(false)
     expect(w.find('[data-testid="close-session"]').exists()).toBe(false)
-    // Table, totals and average stay visible; no cell is interactive or selected.
     expect(w.findAll('table')).toHaveLength(2)
     expect(w.findAll('table button')).toHaveLength(0)
-    expect(w.find('[aria-current]').exists()).toBe(false)
+    // On the summary route the «Resumen» link is the active one (aria-current="page"); no cell is.
+    expect(w.find('[aria-current="true"]').exists()).toBe(false)
     expect(w.get('[data-testid="end-total-0"]').text()).toBe('27/30')
     expect(w.get('[data-testid="grand-total"]').text()).toBe('TOTAL GENERAL: 40/600')
     expect(w.get('[data-testid="average"]').text()).toBe('Promedio: 8.00')
-    const reopen = w.get('[data-testid="reopen-session"]')
-    expect(reopen.text()).toBe('Reabrir sesión')
-    expect(w.get('[role="status"]').element.contains(reopen.element)).toBe(false)
-    expect(document.activeElement).toBe(reopen.element)
+    expect(document.activeElement).not.toBe(w.find('[data-testid="reopen-session"]').element)
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
     expect(stored.sessions[0].closed).toBe(true)
     expect(stored.sessions[0].archers[0].ends[1]).toEqual(['7', '6', null])
+  })
+
+  it('Cancelar stays on the scoring route', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await openFinalizeDialog(w)
+    await w.get('[data-testid="confirm-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.router.currentRoute.value.path).toBe('/session/s1/score/a1')
   })
 
   it('«Reabrir sesión» reopens at once, selects the first empty cell and focuses it', async () => {
@@ -664,5 +685,40 @@ describe('ScoringView finalize / reopen (CU-10)', () => {
     expect(closed()).toBe(false)
     expect(w.find('[role="status"]').exists()).toBe(false)
     expect(w.find('[data-testid="close-session"]').exists()).toBe(true)
+  })
+})
+
+describe('ScoringView «Resumen» link (CU-08)', () => {
+  it('open session: a link in the header to the summary of this archer', async () => {
+    seedPartial()
+    const w = await view()
+    const link = w.get('.scoring-header [data-testid="open-summary"]')
+    expect(link.element.tagName).toBe('A')
+    expect(link.text()).toBe('Resumen')
+    expect(link.attributes('href')).toBe('/session/s1/summary?archer=a1')
+  })
+
+  it('closed session: the link is still there and «Reabrir sesión» stays the only button', async () => {
+    seed(makeSession({ closed: true }))
+    const w = await view()
+    const link = w.get('[data-testid="open-summary"]')
+    expect(link.attributes('href')).toBe('/session/s1/summary?archer=a1')
+    expect(w.findAll('button').map((b) => b.text())).toEqual(['Reabrir sesión'])
+  })
+
+  it('uses the current archer id in the query', async () => {
+    const s = makeSession()
+    s.archers[0]!.id = 'other'
+    seed(s)
+    const w = await view('s1', 'other')
+    expect(w.get('[data-testid="open-summary"]').attributes('href')).toBe(
+      '/session/s1/summary?archer=other',
+    )
+  })
+
+  it('the not-found screen has no «Resumen» link', async () => {
+    seed()
+    const w = await view('nope', 'a1')
+    expect(w.find('[data-testid="open-summary"]').exists()).toBe(false)
   })
 })

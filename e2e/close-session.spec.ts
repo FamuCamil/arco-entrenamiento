@@ -5,6 +5,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const STORAGE_KEY = 'archery-training:v1'
 const SCORING_URL = /#\/session\/[^/]+\/score\/[^/]+$/
+const SUMMARY_URL = /#\/session\/[^/]+\/summary\?archer=[^&]+$/
 
 /** Fails the test on any console warning/error or uncaught page error. */
 function trackConsole(page: Page): string[] {
@@ -93,10 +94,18 @@ test('finalize with confirmation, read-only card and reload, then reopen and kee
   await expect(keypad(page)).toBeVisible()
   expect(await storedClosed(page)).toBe(false)
 
-  // «Finalizar sesión» → «Finalizar»: read-only.
+  // «Finalizar sesión» → «Finalizar»: the summary opens (CU-08) with its heading focused.
   await finalize.click()
   await dialog.getByRole('button', { name: 'Finalizar', exact: true }).click()
   await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL(SUMMARY_URL)
+  await expect(page.getByRole('heading', { name: 'Resumen', level: 2 })).toBeFocused()
+  await expect(page.getByTestId('summary-status')).toHaveText('Finalizada')
+  expect(await storedClosed(page)).toBe(true)
+
+  // «Ver tabla»: the scoring screen, read-only.
+  await page.getByRole('link', { name: 'Ver tabla' }).click()
+  await expect(page).toHaveURL(scoringUrl)
   await expect(page.getByRole('status')).toHaveText('Sesión finalizada — solo lectura')
   await expect(keypad(page)).toHaveCount(0)
   await expect(page.getByRole('group', { name: 'Acciones de borrado' })).toHaveCount(0)
@@ -107,7 +116,6 @@ test('finalize with confirmation, read-only card and reload, then reopen and kee
   await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 27/600')
   await expect(page.getByTestId('average')).toHaveText('Promedio: 9.00')
   const reopen = page.getByRole('button', { name: 'Reabrir sesión' })
-  await expect(reopen).toBeFocused()
   await expectTouchTargetInViewport(page, reopen)
   await expect(page.getByRole('status')).toBeInViewport()
   expect(await storedClosed(page)).toBe(true)
