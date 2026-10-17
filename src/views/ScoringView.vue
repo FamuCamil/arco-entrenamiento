@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 
 import LockIcon from '@/components/LockIcon.vue'
 import ScoreActions from '@/components/ScoreActions.vue'
@@ -33,11 +33,11 @@ const {
 } = useScoring(props.id, props.archerId)
 const stats = useSessionStats(props.id, props.archerId)
 const { confirm } = useConfirm()
+const router = useRouter()
 
 const root = ref<HTMLElement | null>(null)
 const actions = ref<InstanceType<typeof ScoreActions> | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
-const reopenButton = ref<HTMLButtonElement | null>(null)
 
 /** Asks before emptying the whole end; nothing changes on cancel. */
 async function confirmDeleteEnd() {
@@ -55,8 +55,8 @@ async function confirmDeleteEnd() {
 }
 
 /**
- * Asks before finalizing (CU-10). «Finalizar sesión» unmounts with the keypad, so focus moves
- * explicitly to «Reabrir sesión» once the lock renders; on cancel useConfirm returns it.
+ * Asks before finalizing (CU-10); on confirm it closes the session and opens its summary
+ * (CU-08), whose heading takes focus. On cancel useConfirm returns focus to «Finalizar sesión».
  */
 async function confirmClose() {
   const ok = await confirm({
@@ -68,8 +68,11 @@ async function confirmClose() {
   })
   if (!ok) return
   closeSession()
-  await nextTick()
-  reopenButton.value?.focus()
+  await router.push({
+    name: 'summary',
+    params: { id: props.id },
+    query: { archer: props.archerId },
+  })
 }
 
 /** Reopens at once (no confirmation) and focuses the selected cell, or the first key. */
@@ -90,8 +93,17 @@ function registerActiveRow(el: HTMLElement) {
 <template>
   <section v-if="session && archer && face" ref="root" class="scoring">
     <div class="scoring-header">
-      <h2 class="archer">{{ archer.position }} - {{ archer.name }}</h2>
-      <p class="average" data-testid="average">{{ stats.averageLabel.value }}</p>
+      <div class="header-text">
+        <h2 class="archer">{{ archer.position }} - {{ archer.name }}</h2>
+        <p class="average" data-testid="average">{{ stats.averageLabel.value }}</p>
+      </div>
+      <RouterLink
+        class="open-summary"
+        :to="{ name: 'summary', params: { id }, query: { archer: archerId } }"
+        data-testid="open-summary"
+      >
+        Resumen
+      </RouterLink>
     </div>
 
     <div class="grid-scroller">
@@ -117,13 +129,7 @@ function registerActiveRow(el: HTMLElement) {
         <LockIcon class="lock-icon" />
         <span>Sesión finalizada — solo lectura</span>
       </div>
-      <button
-        ref="reopenButton"
-        type="button"
-        class="reopen"
-        data-testid="reopen-session"
-        @click="onReopen"
-      >
+      <button type="button" class="reopen" data-testid="reopen-session" @click="onReopen">
         Reabrir sesión
       </button>
     </div>
@@ -166,14 +172,42 @@ function registerActiveRow(el: HTMLElement) {
 .scoring-header {
   flex: none;
   display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Long names wrap here; «Resumen» keeps its width on the right. */
+.header-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-1) var(--space-3);
 }
 
+/* Outlined accent link (CU-08), like «Finalizar sesión». */
+.open-summary {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
 .archer {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: var(--font-size-lg);
 }
 
