@@ -21,3 +21,4 @@ Statuses:
 | 09 | [use-cases/09-lista-sesiones.md](use-cases/09-lista-sesiones.md) | CU-09 Lista de sesiones | done | 2026-10-17 |
 | 10 | [use-cases/10-cerrar-reabrir-sesion.md](use-cases/10-cerrar-reabrir-sesion.md) | CU-10 Cerrar / reabrir sesión | done | 2026-10-17 |
 | 11 | [use-cases/11-copia-seguridad.md](use-cases/11-copia-seguridad.md) | CU-15 Copia de seguridad (exportar / importar JSON) | done | 2026-10-17 |
+| 12 | [use-cases/12-resumen-sesion.md](use-cases/12-resumen-sesion.md) | CU-08 Resumen de la sesión | in-progress | 2026-10-17 |
