@@ -25,7 +25,7 @@ function trackConsole(page: Page): string[] {
 test('Chromium reports the app as installable', async ({ page }) => {
   const problems = trackConsole(page)
   await page.goto('./')
-  await expect(page.getByRole('button', { name: 'Sesión de prueba' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Nueva sesión' })).toBeVisible()
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, {
     timeout: 15_000,
   })

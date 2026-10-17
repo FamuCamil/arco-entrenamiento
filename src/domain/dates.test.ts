@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { localIsoDate } from './dates'
+import { formatDisplayDate, localIsoDate } from './dates'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -31,5 +31,25 @@ describe('localIsoDate', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 1, 3, 23, 59))
     expect(localIsoDate()).toBe('2026-02-03')
+  })
+})
+
+describe('formatDisplayDate', () => {
+  it('turns YYYY-MM-DD into DD/MM/YYYY', () => {
+    expect(formatDisplayDate('2026-10-17')).toBe('17/10/2026')
+    expect(formatDisplayDate('2026-01-05')).toBe('05/01/2026')
+    expect(formatDisplayDate('2024-02-29')).toBe('29/02/2024')
+  })
+
+  it('does not parse a Date (no time-zone shift)', () => {
+    const spy = vi.spyOn(globalThis, 'Date')
+    formatDisplayDate('2026-01-01')
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('returns anything else unchanged', () => {
+    for (const text of ['', '2026-1-5', '17/10/2026', 'abc', '2026-10-17T00:00']) {
+      expect(formatDisplayDate(text)).toBe(text)
+    }
   })
 })

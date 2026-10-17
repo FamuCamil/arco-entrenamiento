@@ -314,3 +314,184 @@ describe('ScoreGrid totals', () => {
     expect(w.get('[data-testid="grand-total"]').text()).toBe('TOTAL GENERAL: 19/60')
   })
 })
+
+describe('ScoreGrid with more than 6 arrows (two lines per end)', () => {
+  it('12 arrows: two header rows 1–6 / 7–12 with T., Total and Acum. spanning both', () => {
+    const w = grid(ends(2, 12), { row: 0, col: 0 }, vi.fn(), 2)
+    const table = w.get('table')
+    expect(table.classes()).toContain('is-wrapped')
+    const headRows = table.get('thead').findAll('tr')
+    expect(headRows).toHaveLength(2)
+    expect(headRows[0]!.findAll('th').map((th) => th.text())).toEqual([
+      'T.',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      'Total',
+      'Acum.',
+    ])
+    expect(headRows[1]!.findAll('th').map((th) => th.text())).toEqual([
+      '7',
+      '8',
+      '9',
+      '10',
+      '11',
+      '12',
+    ])
+    const spanned = headRows[0]!.findAll('th').filter((th) => th.attributes('rowspan') === '2')
+    expect(spanned.map((th) => th.text())).toEqual(['T.', 'Total', 'Acum.'])
+  })
+
+  it('12 arrows: one tbody per end carrying score-row-N, with two lines of 6 cells', () => {
+    const w = grid(ends(4, 12), { row: 0, col: 0 }, vi.fn(), 2)
+    const table = w.findAll('table')[1]!
+    const bodies = table.findAll('tbody')
+    expect(bodies).toHaveLength(2)
+    expect(bodies.map((b) => b.attributes('data-testid'))).toEqual(['score-row-2', 'score-row-3'])
+    for (const body of bodies) {
+      expect(body.classes()).toContain('end')
+      const lines = body.findAll('tr')
+      expect(lines).toHaveLength(2)
+      expect(lines[0]!.findAll('td.score-cell')).toHaveLength(6)
+      expect(lines[1]!.findAll('td.score-cell')).toHaveLength(6)
+      expect(body.findAll('.filler')).toHaveLength(0)
+    }
+    expect(bodies[0]!.get('th[scope="row"]').text()).toBe('1')
+    expect(bodies[1]!.get('th[scope="row"]').text()).toBe('2')
+  })
+
+  it('12 arrows: the end number and both totals span the two lines', () => {
+    const w = grid(ends(2, 12), { row: 0, col: 0 }, vi.fn(), 2)
+    const body = w.get('[data-testid="score-row-0"]')
+    expect(body.get('th[scope="row"]').attributes('rowspan')).toBe('2')
+    expect(body.get('[data-testid="end-total-0"]').attributes('rowspan')).toBe('2')
+    expect(body.get('[data-testid="running-total-0"]').attributes('rowspan')).toBe('2')
+  })
+
+  it('12 arrows: cells keep their arrow order 0..11 and labels «flecha 1..12»', () => {
+    const e = ends(2, 12)
+    e[1] = ['X', '10', '9', '8', '7', '6', '5', '4', '3', '2', '1', 'M']
+    const w = grid(e, { row: 0, col: 0 }, vi.fn(), 2)
+    const body = w.get('[data-testid="score-row-1"]')
+    const cells = body.findAll('td.score-cell')
+    expect(cells.map((c) => c.attributes('data-testid'))).toEqual(
+      Array.from({ length: 12 }, (_, i) => `score-cell-1-${i}`),
+    )
+    expect(cells.map((c) => c.text())).toEqual(e[1])
+    const labels = cells.map((c) => c.get('button').attributes('aria-label'))
+    expect(labels[0]).toBe('Serie 1, tanda 2, flecha 1: X')
+    expect(labels[6]).toBe('Serie 1, tanda 2, flecha 7: 5')
+    expect(labels[11]).toBe('Serie 1, tanda 2, flecha 12: fallo')
+  })
+
+  it('12 arrows: a colgroup of end, 6 arrow, Total and Acum. columns; tfoot colspan 9', () => {
+    const w = grid(ends(2, 12), { row: 0, col: 0 }, vi.fn(), 2)
+    const cols = w.get('table').findAll('colgroup col')
+    expect(cols).toHaveLength(9)
+    expect(cols[0]!.classes()).toContain('col-end')
+    expect(cols[7]!.classes()).toContain('col-total')
+    expect(cols[8]!.classes()).toContain('col-running')
+    expect(w.get('[data-testid="series-total-0"]').attributes('colspan')).toBe('9')
+  })
+
+  it('7 arrows: 4 cells on line 1, 3 cells plus an aria-hidden filler on line 2', () => {
+    const w = grid(ends(2, 7), { row: 0, col: 0 }, vi.fn(), 2)
+    const headRows = w.get('thead').findAll('tr')
+    expect(headRows[0]!.findAll('th').map((th) => th.text())).toEqual([
+      'T.',
+      '1',
+      '2',
+      '3',
+      '4',
+      'Total',
+      'Acum.',
+    ])
+    const secondHead = headRows[1]!.findAll('th')
+    expect(secondHead.map((th) => th.text())).toEqual(['5', '6', '7', ''])
+    expect(secondHead[3]!.attributes('aria-hidden')).toBe('true')
+
+    const lines = w.get('[data-testid="score-row-0"]').findAll('tr')
+    expect(lines[0]!.findAll('td.score-cell').map((c) => c.attributes('data-testid'))).toEqual([
+      'score-cell-0-0',
+      'score-cell-0-1',
+      'score-cell-0-2',
+      'score-cell-0-3',
+    ])
+    expect(lines[1]!.findAll('td.score-cell').map((c) => c.attributes('data-testid'))).toEqual([
+      'score-cell-0-4',
+      'score-cell-0-5',
+      'score-cell-0-6',
+    ])
+    const filler = lines[1]!.get('td.filler')
+    expect(filler.attributes('aria-hidden')).toBe('true')
+    expect(filler.findAll('button')).toHaveLength(0)
+    expect(w.get('table').findAll('colgroup col')).toHaveLength(7)
+    expect(w.get('[data-testid="series-total-0"]').attributes('colspan')).toBe('7')
+  })
+
+  it('marks exactly the selected cell, also on the second line', () => {
+    const w = grid(ends(4, 12), { row: 3, col: 8 }, vi.fn(), 2)
+    const current = w.findAll('[aria-current="true"]')
+    expect(current).toHaveLength(1)
+    expect(current[0]!.attributes('data-testid')).toBe('score-cell-3-8')
+  })
+
+  it('registers the selected end tbody, and the new one when the row changes', async () => {
+    const register = vi.fn()
+    const w = grid(ends(4, 12), { row: 0, col: 0 }, register, 2)
+    const body0 = w.get('[data-testid="score-row-0"]').element
+    expect(body0.tagName).toBe('TBODY')
+    expect(register).toHaveBeenLastCalledWith(body0)
+    await w.setProps({ selected: { row: 0, col: 7 } })
+    expect(register).toHaveBeenLastCalledWith(body0)
+    await w.setProps({ selected: { row: 2, col: 0 } })
+    expect(register).toHaveBeenLastCalledWith(w.get('[data-testid="score-row-2"]').element)
+  })
+
+  it('clicking a second-line cell emits select with its arrow index', async () => {
+    const w = grid(ends(2, 12), { row: 0, col: 0 }, vi.fn(), 2)
+    await w.get('[data-testid="score-cell-1-9"] button').trigger('click')
+    await w.get('[data-testid="score-cell-1-2"] button').trigger('click')
+    expect(w.emitted('select')).toEqual([
+      [1, 9],
+      [1, 2],
+    ])
+  })
+
+  it('shows «X/endMax» totals and is not interactive when closed', () => {
+    const w = mount(ScoreGrid, {
+      props: {
+        ends: [Array.from({ length: 12 }, () => '11'), Array.from({ length: 12 }, () => null)],
+        endsPerSeries: 2,
+        selected: { row: 1, col: 0 },
+        registerActiveRow: vi.fn(),
+        interactive: false,
+        endTotals: [132, null],
+        runningTotals: [132, null],
+        seriesTotals: [132],
+        grandTotal: 132,
+        endMax: 132,
+        seriesMax: 264,
+        grandMax: 264,
+      },
+    })
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('132/132')
+    expect(w.get('[data-testid="running-total-0"]').text()).toBe('132')
+    expect(w.get('[data-testid="end-total-1"]').text()).toBe('')
+    expect(w.findAll('button')).toHaveLength(0)
+    expect(w.get('[data-testid="score-cell-0-11"]').text()).toBe('11')
+  })
+
+  it('6 arrows stay on one line: one tbody, one header row, no rowspans', () => {
+    const w = grid(ends(2, 6), { row: 0, col: 0 }, vi.fn(), 2)
+    const table = w.get('table')
+    expect(table.classes()).not.toContain('is-wrapped')
+    expect(table.findAll('tbody')).toHaveLength(1)
+    expect(table.get('thead').findAll('tr')).toHaveLength(1)
+    expect(table.findAll('[rowspan]')).toHaveLength(0)
+    expect(w.get('[data-testid="score-row-0"]').element.tagName).toBe('TR')
+  })
+})
