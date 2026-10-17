@@ -1,42 +1,35 @@
 <script setup lang="ts">
-// TODO(CU-09): session list, newest first, plus export/import (CU-15).
-import { useRouter } from 'vue-router'
+// TODO(CU-09): provisional list (date and location only); CU-09 replaces it with the session
+// cards, plus export/import (CU-15).
+import { RouterLink, useRouter } from 'vue-router'
 
-import { localIsoDate } from '@/domain/dates'
-import { getTemplate } from '@/domain/templates'
+import { formatDisplayDate } from '@/domain/dates'
 import { useSessionsStore } from '@/stores/sessions'
 
 const router = useRouter()
 const store = useSessionsStore()
 
-// TODO(CU-01): provisional «Sesión de prueba» until real session creation lands in F2.
-// Remove this block (constant, handler and button) together.
-const TEST_SESSION_LOCATION = 'Sesión de prueba'
-
-function openTestSession() {
-  let session = store.sessions.find((s) => s.location === TEST_SESSION_LOCATION)
-  if (!session) {
-    const preset = getTemplate('sala-18')?.preset
-    if (!preset) return
-    session = store.createSession({
-      ...preset,
-      date: localIsoDate(),
-      location: TEST_SESSION_LOCATION,
-    })
-  }
-  const archer = session.archers[0]
-  if (!archer) return
-  void router.push({ name: 'scoring', params: { id: session.id, archerId: archer.id } })
+function newSession() {
+  void router.push({ name: 'new-session' })
 }
-// END TODO(CU-01)
 </script>
 
 <template>
   <section>
     <h2>Sesiones</h2>
-    <p class="empty">Todavía no hay sesiones de entrenamiento.</p>
-    <!-- TODO(CU-01): provisional button, remove with the block above. -->
-    <button type="button" class="test-session" @click="openTestSession">Sesión de prueba</button>
+    <button type="button" class="new-session" @click="newSession">Nueva sesión</button>
+    <ul v-if="store.sortedSessions.length > 0" class="session-list" aria-label="Sesiones guardadas">
+      <li v-for="session in store.sortedSessions" :key="session.id">
+        <RouterLink
+          v-if="session.archers[0]"
+          class="session-link"
+          :to="{ name: 'scoring', params: { id: session.id, archerId: session.archers[0].id } }"
+        >
+          {{ formatDisplayDate(session.date) }} · {{ session.location.trim() || 'Sin lugar' }}
+        </RouterLink>
+      </li>
+    </ul>
+    <p v-else class="empty">Todavía no hay sesiones de entrenamiento.</p>
   </section>
 </template>
 
@@ -45,7 +38,7 @@ function openTestSession() {
   color: var(--color-text-muted);
 }
 
-.test-session {
+.new-session {
   min-height: var(--touch-min);
   padding: 0 var(--space-4);
   border: none;
@@ -55,5 +48,27 @@ function openTestSession() {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 </style>
