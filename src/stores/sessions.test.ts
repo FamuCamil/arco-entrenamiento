@@ -573,3 +573,231 @@ describe('sortedSessions', () => {
     expect(store.sortedSessions[0]).toBe(store.getSession('new-late'))
   })
 })
+
+describe('exportJson / importJson (CU-11)', () => {
+  const NOW = new Date(Date.UTC(2026, 9, 17, 10, 0, 0))
+
+  function seedStore(sessions = [makeSession()], profileName = '') {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...makeState(sessions), profileName }))
+    return useSessionsStore()
+  }
+
+  function file(sessions: ReturnType<typeof makeSession>[], profileName = '') {
+    return JSON.stringify({ ...makeState(sessions), profileName, exportedAt: NOW.toISOString() })
+  }
+
+  function quotaFull() {
+    return vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError')
+    })
+  }
+
+  it('exports the whole state as indented backup JSON', () => {
+    const s = makeSession()
+    s.archers[0]!.ends[0] = ['X', '9', null]
+    const store = seedStore([s], 'Ana')
+    const json = store.exportJson(NOW)
+    expect(json).toContain('\n  "version": 1')
+    expect(JSON.parse(json)).toEqual({
+      version: 1,
+      sessions: [s],
+      profileName: 'Ana',
+      exportedAt: '2026-10-17T10:00:00.000Z',
+    })
+  })
+
+  it('exports a valid empty copy with zero sessions', () => {
+    const json = useSessionsStore().exportJson(NOW)
+    expect(JSON.parse(json)).toEqual({
+      version: 1,
+      sessions: [],
+      profileName: '',
+      exportedAt: NOW.toISOString(),
+    })
+  })
+
+  it('exportJson defaults to now', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    expect(JSON.parse(useSessionsStore().exportJson()).exportedAt).toBe(NOW.toISOString())
+  })
+
+  it('round-trips: export, clear, import gives identical sessions', () => {
+    const s = makeSession({ id: 'a', closed: true, updatedAt: 8 })
+    s.archers[0]!.ends[2] = ['10', '10', '9']
+    const json = seedStore([s, makeSession({ id: 'b' })], 'Ana').exportJson(NOW)
+    localStorage.clear()
+    setActivePinia(createPinia())
+    const store = useSessionsStore()
+    const preview = store.importJson(json)
+    expect(preview.ok && preview.apply()).toEqual({
+      added: 2,
+      updated: 0,
+      unchanged: 0,
+      saved: true,
+    })
+    expect(store.sessions).toEqual([s, makeSession({ id: 'b' })])
+    expect(store.profileName).toBe('Ana')
+  })
+
+  it('importJson previews the counts without mutating anything before apply', async () => {
+    const store = seedStore([makeSession({ id: 'a', updatedAt: 1 })])
+    const before = JSON.parse(JSON.stringify(store.sessions))
+    const storedBefore = localStorage.getItem(STORAGE_KEY)
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const preview = store.importJson(
+      file([makeSession({ id: 'a', updatedAt: 2 }), makeSession({ id: 'b' })], 'Luis'),
+    )
+    expect(preview).toMatchObject({ ok: true, total: 2, added: 1, updated: 1, unchanged: 0 })
+    await nextTick()
+    expect(store.sessions).toEqual(before)
+    expect(store.profileName).toBe('')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(storedBefore)
+    expect(setItem).not.toHaveBeenCalled()
+  })
+
+  it('apply adds, updates and keeps; locals first then added; persisted with saved: true', async () => {
+    const keep = makeSession({ id: 'keep', updatedAt: 5 })
+    const mine = makeSession({ id: 'mine' })
+    const store = seedStore([makeSession({ id: 'upd', updatedAt: 1 }), keep, mine])
+    const newer = makeSession({ id: 'upd', updatedAt: 9, closed: true })
+    newer.archers[0]!.ends[0] = ['X', 'X', 'X']
+    const preview = store.importJson(
+      file([
+        makeSession({ id: 'keep', updatedAt: 5, notes: 'otra' }),
+        newer,
+        makeSession({ id: 'new' }),
+      ]),
+    )
+    if (!preview.ok) throw new Error(preview.error)
+    const result = preview.apply()
+    expect(result).toEqual({ added: 1, updated: 1, unchanged: 1, saved: true })
+    expect(store.sessions.map((s) => s.id)).toEqual(['upd', 'keep', 'mine', 'new'])
+    expect(store.sessions[0]).toEqual(newer)
+    expect(store.sessions[1]).toEqual(keep)
+    expect(stored().sessions).toEqual(store.sessions)
+    await nextTick()
+    expect(stored().sessions.map((s: { id: string }) => s.id)).toEqual([
+      'upd',
+      'keep',
+      'mine',
+      'new',
+    ])
+  })
+
+  it('apply assigns the sessions array once', () => {
+    const store = seedStore([makeSession({ id: 'a' })])
+    const preview = store.importJson(file([makeSession({ id: 'b' }), makeSession({ id: 'c' })]))
+    if (!preview.ok) throw new Error(preview.error)
+    const original = store.sessions
+    preview.apply()
+    expect(store.sessions).not.toBe(original)
+    expect(original.map((s) => s.id)).toEqual(['a'])
+  })
+
+  it('apply re-plans against the current sessions', () => {
+    const store = seedStore([])
+    const preview = store.importJson(file([makeSession({ id: 'a', updatedAt: 3 })]))
+    if (!preview.ok) throw new Error(preview.error)
+    expect(preview.added).toBe(1)
+    store.sessions.push(makeSession({ id: 'a', updatedAt: 3 }))
+    expect(preview.apply()).toEqual({ added: 0, updated: 0, unchanged: 1, saved: true })
+    expect(store.sessions).toHaveLength(1)
+  })
+
+  it('importing the same file twice duplicates nothing', () => {
+    const store = seedStore([])
+    const json = file([makeSession({ id: 'a' }), makeSession({ id: 'b' })])
+    const first = store.importJson(json)
+    if (!first.ok) throw new Error(first.error)
+    first.apply()
+    const second = store.importJson(json)
+    expect(second).toMatchObject({ ok: true, total: 2, added: 0, updated: 0, unchanged: 2 })
+    if (!second.ok) throw new Error(second.error)
+    expect(second.apply()).toEqual({ added: 0, updated: 0, unchanged: 2, saved: true })
+    expect(store.sessions.map((s) => s.id)).toEqual(['a', 'b'])
+  })
+
+  it('adopts the file profileName only when the local one is blank', () => {
+    const blank = seedStore([], '   ')
+    const preview = blank.importJson(file([makeSession()], 'Ana'))
+    if (!preview.ok) throw new Error(preview.error)
+    preview.apply()
+    expect(blank.profileName).toBe('Ana')
+    expect(stored().profileName).toBe('Ana')
+
+    setActivePinia(createPinia())
+    const named = seedStore([], 'Luis')
+    const other = named.importJson(file([makeSession()], 'Ana'))
+    if (!other.ok) throw new Error(other.error)
+    other.apply()
+    expect(named.profileName).toBe('Luis')
+    expect(stored().profileName).toBe('Luis')
+  })
+
+  it('does not adopt a blank file profileName', () => {
+    const store = seedStore([], '')
+    const preview = store.importJson(file([makeSession()], '  '))
+    if (!preview.ok) throw new Error(preview.error)
+    preview.apply()
+    expect(store.profileName).toBe('')
+  })
+
+  it('a profile-only adoption with all sessions up to date persists the name', () => {
+    const s = makeSession()
+    const store = seedStore([s], '')
+    const preview = store.importJson(file([s], 'Ana'))
+    expect(preview).toMatchObject({ ok: true, added: 0, updated: 0, unchanged: 1 })
+    if (!preview.ok) throw new Error(preview.error)
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    expect(preview.apply()).toEqual({ added: 0, updated: 0, unchanged: 1, saved: true })
+    expect(setItem).toHaveBeenCalled()
+    expect(stored().profileName).toBe('Ana')
+  })
+
+  it('nothing to change: apply writes nothing and reports saved: true', () => {
+    const s = makeSession()
+    const store = seedStore([s], 'Luis')
+    const preview = store.importJson(file([s], 'Ana'))
+    if (!preview.ok) throw new Error(preview.error)
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    expect(preview.apply()).toEqual({ added: 0, updated: 0, unchanged: 1, saved: true })
+    expect(setItem).not.toHaveBeenCalled()
+  })
+
+  it('reports saved: false when storage is full (merge path)', () => {
+    const store = seedStore([])
+    const preview = store.importJson(file([makeSession({ id: 'a' })]))
+    if (!preview.ok) throw new Error(preview.error)
+    quotaFull()
+    expect(preview.apply()).toEqual({ added: 1, updated: 0, unchanged: 0, saved: false })
+    expect(store.sessions.map((s) => s.id)).toEqual(['a'])
+  })
+
+  it('reports saved: false when storage is full (profile-only path)', () => {
+    const s = makeSession()
+    const store = seedStore([s], '')
+    const preview = store.importJson(file([s], 'Ana'))
+    if (!preview.ok) throw new Error(preview.error)
+    quotaFull()
+    expect(preview.apply()).toEqual({ added: 0, updated: 0, unchanged: 1, saved: false })
+    expect(store.profileName).toBe('Ana')
+  })
+
+  it.each([
+    ['not JSON', '{oops', 'El archivo no es una copia válida: no contiene JSON.'],
+    [
+      'a damaged session',
+      JSON.stringify(makeState([{ id: 'x' } as never])),
+      'La copia tiene sesiones dañadas o incompletas. No se ha importado nada.',
+    ],
+  ])('returns ok: false for %s and changes nothing', async (_label, raw, error) => {
+    const store = seedStore([makeSession({ id: 'a' })], 'Luis')
+    const storedBefore = localStorage.getItem(STORAGE_KEY)
+    expect(store.importJson(raw)).toEqual({ ok: false, error })
+    await nextTick()
+    expect(store.sessions.map((s) => s.id)).toEqual(['a'])
+    expect(store.profileName).toBe('Luis')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(storedBefore)
+  })
+})

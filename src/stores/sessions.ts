@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
 import { usePersistence } from '@/composables/usePersistence'
+import { parseBackup, planMerge, serializeBackup } from '@/domain/backup'
 import { createId } from '@/domain/ids'
 import { sortEnd } from '@/domain/scoring'
 import { getTargetFace } from '@/domain/targetFaces'
@@ -19,6 +20,27 @@ export interface SessionInput {
   endsPerSeries: number
   arrowsPerEnd: number
   notes?: string
+}
+
+/** Result of importJson: either the parse error, or the merge counts plus a way to apply it. */
+export type ImportPreview =
+  | { ok: false; error: string }
+  | {
+      ok: true
+      /** Sessions in the file. */
+      total: number
+      added: number
+      updated: number
+      unchanged: number
+      apply: () => ImportResult
+    }
+
+export interface ImportResult {
+  added: number
+  updated: number
+  unchanged: number
+  /** False when the merged state could not be written to storage. */
+  saved: boolean
 }
 
 function emptyEnds(rows: number, arrows: number): End[] {
@@ -124,6 +146,46 @@ export const useSessionsStore = defineStore('sessions', () => {
     session.updatedAt = Date.now()
   }
 
+  /** The whole state as backup JSON (CU-11). Works with zero sessions. */
+  function exportJson(now: Date = new Date()): string {
+    return serializeBackup(
+      { version: 1, sessions: sessions.value, profileName: profileName.value },
+      now,
+    )
+  }
+
+  /**
+   * Validates a backup and previews the merge without touching any state. `apply()` re-plans
+   * against the current sessions, so its counts are the ones actually applied.
+   */
+  function importJson(text: string): ImportPreview {
+    const parsed = parseBackup(text)
+    if (!parsed.ok) return parsed
+    const incoming = parsed.state
+    const preview = planMerge(sessions.value, incoming.sessions)
+    function apply(): ImportResult {
+      const plan = planMerge(sessions.value, incoming.sessions)
+      const merged = plan.added + plan.updated > 0
+      if (merged) sessions.value = plan.sessions
+      const profileAdopted = profileName.value.trim() === '' && incoming.profileName.trim() !== ''
+      if (profileAdopted) profileName.value = incoming.profileName
+      // Saved explicitly so the result can report a storage failure; the deep watch saves too.
+      const saved =
+        merged || profileAdopted
+          ? save({ version: 1, sessions: sessions.value, profileName: profileName.value })
+          : true
+      return { added: plan.added, updated: plan.updated, unchanged: plan.unchanged, saved }
+    }
+    return {
+      ok: true,
+      total: incoming.sessions.length,
+      added: preview.added,
+      updated: preview.updated,
+      unchanged: preview.unchanged,
+      apply,
+    }
+  }
+
   watch(
     () => ({ version: 1 as const, sessions: sessions.value, profileName: profileName.value }),
     (state) => {
@@ -142,5 +204,7 @@ export const useSessionsStore = defineStore('sessions', () => {
     setArrow,
     deleteEnd,
     setClosed,
+    exportJson,
+    importJson,
   }
 })
