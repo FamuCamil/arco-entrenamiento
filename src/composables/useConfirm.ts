@@ -7,6 +7,8 @@ export interface ConfirmOptions {
   confirmLabel?: string
   /** Defaults to «Cancelar». */
   cancelLabel?: string
+  /** Paints the confirm button in danger red. Defaults to true; false uses the accent colour. */
+  danger?: boolean
   /**
    * Element that gets focus back when the dialog closes. Defaults to the element focused when
    * confirm() was called; pass it explicitly where taps don't focus buttons (iOS Safari).
@@ -19,6 +21,7 @@ export interface ConfirmRequest {
   message: string
   confirmLabel: string
   cancelLabel: string
+  danger: boolean
 }
 
 // Module-level singleton: one dialog host (ConfirmDialog in App.vue) serves every caller.
@@ -50,6 +53,7 @@ function confirm(options: ConfirmOptions): Promise<boolean> {
     message: options.message,
     confirmLabel: options.confirmLabel ?? 'Aceptar',
     cancelLabel: options.cancelLabel ?? 'Cancelar',
+    danger: options.danger ?? true,
   }
   return new Promise<boolean>((resolve) => {
     resolver = resolve

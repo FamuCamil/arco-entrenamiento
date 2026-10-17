@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import LockIcon from '@/components/LockIcon.vue'
 import ScoreActions from '@/components/ScoreActions.vue'
 import ScoreGrid from '@/components/ScoreGrid.vue'
 import ScoreKeypad from '@/components/ScoreKeypad.vue'
@@ -26,12 +27,17 @@ const {
   canDeleteEnd,
   deleteArrow,
   deleteEnd,
+  closeSession,
+  reopenSession,
   activeRowRef,
 } = useScoring(props.id, props.archerId)
 const stats = useSessionStats(props.id, props.archerId)
 const { confirm } = useConfirm()
 
+const root = ref<HTMLElement | null>(null)
 const actions = ref<InstanceType<typeof ScoreActions> | null>(null)
+const closeButton = ref<HTMLButtonElement | null>(null)
+const reopenButton = ref<HTMLButtonElement | null>(null)
 
 /** Asks before emptying the whole end; nothing changes on cancel. */
 async function confirmDeleteEnd() {
@@ -48,13 +54,41 @@ async function confirmDeleteEnd() {
   if (ok) deleteEnd()
 }
 
+/**
+ * Asks before finalizing (CU-10). «Finalizar sesión» unmounts with the keypad, so focus moves
+ * explicitly to «Reabrir sesión» once the lock renders; on cancel useConfirm returns it.
+ */
+async function confirmClose() {
+  const ok = await confirm({
+    title: '¿Finalizar la sesión?',
+    message: 'La sesión quedará en solo lectura. Podrás reabrirla cuando quieras.',
+    confirmLabel: 'Finalizar',
+    danger: false,
+    returnFocusTo: closeButton.value ?? undefined,
+  })
+  if (!ok) return
+  closeSession()
+  await nextTick()
+  reopenButton.value?.focus()
+}
+
+/** Reopens at once (no confirmation) and focuses the selected cell, or the first key. */
+async function onReopen() {
+  reopenSession()
+  await nextTick()
+  const target =
+    root.value?.querySelector<HTMLElement>('.score-cell[aria-current="true"] .cell-button') ??
+    root.value?.querySelector<HTMLElement>('.controls button')
+  target?.focus()
+}
+
 function registerActiveRow(el: HTMLElement) {
   activeRowRef.value = el
 }
 </script>
 
 <template>
-  <section v-if="session && archer && face" class="scoring">
+  <section v-if="session && archer && face" ref="root" class="scoring">
     <div class="scoring-header">
       <h2 class="archer">{{ archer.position }} - {{ archer.name }}</h2>
       <p class="average" data-testid="average">{{ stats.averageLabel.value }}</p>
@@ -78,14 +112,20 @@ function registerActiveRow(el: HTMLElement) {
       />
     </div>
 
-    <div v-if="isLocked" class="locked" role="status">
-      <svg class="lock-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M7 10V7a5 5 0 0 1 10 0v3h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V11a1 1 0 0 1 1-1h1Zm2 0h6V7a3 3 0 0 0-6 0v3Z"
-          fill="currentColor"
-        />
-      </svg>
-      <span>Sesión finalizada — solo lectura</span>
+    <div v-if="isLocked" class="locked-panel">
+      <div class="locked" role="status">
+        <LockIcon class="lock-icon" />
+        <span>Sesión finalizada — solo lectura</span>
+      </div>
+      <button
+        ref="reopenButton"
+        type="button"
+        class="reopen"
+        data-testid="reopen-session"
+        @click="onReopen"
+      >
+        Reabrir sesión
+      </button>
     </div>
     <div v-else class="controls">
       <ScoreKeypad :face="face" @score="score" />
@@ -96,6 +136,15 @@ function registerActiveRow(el: HTMLElement) {
         @delete-arrow="deleteArrow"
         @delete-end="confirmDeleteEnd"
       />
+      <button
+        ref="closeButton"
+        type="button"
+        class="close-session"
+        data-testid="close-session"
+        @click="confirmClose"
+      >
+        Finalizar sesión
+      </button>
     </div>
   </section>
 
@@ -142,14 +191,40 @@ function registerActiveRow(el: HTMLElement) {
 }
 
 .controls,
-.locked {
+.locked-panel {
   flex: none;
 }
 
-.controls {
+.controls,
+.locked-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* Outlined accent: set apart from the delete actions and never danger red (CU-10). */
+.close-session,
+.reopen {
+  width: 100%;
+  min-height: var(--touch-min);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.close-session {
+  margin-top: var(--space-1);
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+/* Filled accent, like «Nueva sesión». */
+.reopen {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
 }
 
 .locked {

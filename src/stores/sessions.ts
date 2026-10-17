@@ -113,6 +113,17 @@ export const useSessionsStore = defineStore('sessions', () => {
     session.updatedAt = Date.now()
   }
 
+  /**
+   * Finalizes (true) or reopens (false) a session (CU-10). Idempotent: no-op, and no updatedAt
+   * change, if the session is missing or already has that value.
+   */
+  function setClosed(sessionId: string, closed: boolean): void {
+    const session = getSession(sessionId)
+    if (!session || session.closed === closed) return
+    session.closed = closed
+    session.updatedAt = Date.now()
+  }
+
   watch(
     () => ({ version: 1 as const, sessions: sessions.value, profileName: profileName.value }),
     (state) => {
@@ -130,5 +141,6 @@ export const useSessionsStore = defineStore('sessions', () => {
     createSession,
     setArrow,
     deleteEnd,
+    setClosed,
   }
 })

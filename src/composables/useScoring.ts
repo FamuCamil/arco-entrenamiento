@@ -69,6 +69,17 @@ export function useScoring(sessionId: string, archerId: string) {
     selected.value = { row, col: 0 }
   }
 
+  /** Finalizes the session (CU-10). Confirmation is the caller's job. */
+  function closeSession(): void {
+    store.setClosed(sessionId, true)
+  }
+
+  /** Reopens the session and selects the first empty cell, or the last cell when full (CU-10). */
+  function reopenSession(): void {
+    store.setClosed(sessionId, false)
+    if (archer.value) selected.value = firstEmptyCell(archer.value.ends)
+  }
+
   /**
    * Element of the selected row, set by the grid. Each new element is scrolled into view,
    * so the active row stays visible on entry and whenever the row changes.
@@ -90,6 +101,8 @@ export function useScoring(sessionId: string, archerId: string) {
     canDeleteEnd,
     deleteArrow,
     deleteEnd,
+    closeSession,
+    reopenSession,
     activeRowRef,
   }
 }
