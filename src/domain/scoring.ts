@@ -1,4 +1,4 @@
-import type { Cell, End, TargetFace } from './types'
+import type { Archer, Cell, End, TargetFace } from './types'
 
 // Scoring rules (brief: Domain > Scoring rules). Pure functions.
 
@@ -97,4 +97,9 @@ export function averagePerArrow(ends: End[], face: TargetFace): number | null {
   const shot = ends.reduce((n, end) => n + end.filter((key) => key !== null).length, 0)
   if (shot === 0) return null
   return Math.round((grandTotal(ends, face) * 100) / shot) / 100
+}
+
+/** True when any archer has at least one non-empty cell, whatever its key (CU-11 lock). */
+export function hasAnyArrow(archers: readonly Archer[]): boolean {
+  return archers.some((archer) => archer.ends.some((end) => end.some((key) => key !== null)))
 }

@@ -32,6 +32,13 @@ const router = createRouter({
         archerId: typeof route.query.archer === 'string' ? route.query.archer : undefined,
       }),
     },
+    {
+      // CU-11: edits date, place, distance and notes always; face and structure only without arrows.
+      path: '/session/:id/edit',
+      name: 'edit-session',
+      component: () => import('@/views/EditSessionView.vue'),
+      props: true,
+    },
   ],
 })
 

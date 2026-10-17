@@ -42,6 +42,7 @@ const placeLabel = computed(() => session.value?.location.trim() || 'Sin lugar')
 const distanceLabel = computed(() =>
   session.value?.distance === 0 ? 'Variable' : `${session.value?.distance} m`,
 )
+const notes = computed(() => session.value?.notes.trim() ?? '')
 const isClosed = computed(() => session.value?.closed ?? false)
 
 const heading = ref<HTMLElement | null>(null)
@@ -78,6 +79,13 @@ onMounted(() => heading.value?.focus())
         {{ isClosed ? 'Ver tabla' : 'Volver a anotar' }}
       </RouterLink>
       <RouterLink class="nav-link" to="/" data-testid="summary-home">Inicio</RouterLink>
+      <RouterLink
+        class="nav-link nav-link-wide"
+        :to="{ name: 'edit-session', params: { id } }"
+        data-testid="summary-edit"
+      >
+        Editar datos
+      </RouterLink>
     </nav>
 
     <SummaryTable
@@ -112,6 +120,11 @@ onMounted(() => heading.value?.focus())
         <span class="zone-count">{{ count }}</span>
       </li>
     </ul>
+
+    <section v-if="notes !== ''" aria-labelledby="summary-notes-title">
+      <h3 id="summary-notes-title" class="distribution-title">Notas</h3>
+      <p class="summary-notes" data-testid="summary-notes">{{ notes }}</p>
+    </section>
   </section>
 
   <section v-else class="not-found">
@@ -189,6 +202,11 @@ onMounted(() => heading.value?.focus())
   touch-action: manipulation;
 }
 
+/* «Editar datos» takes the whole row, so back/home keep their width. */
+.nav-link-wide {
+  grid-column: 1 / -1;
+}
+
 .summary-average {
   margin: 0;
   font-weight: 600;
@@ -228,5 +246,12 @@ onMounted(() => heading.value?.focus())
   border: 1px solid #6b7280;
   border-radius: var(--radius);
   font-weight: 700;
+}
+
+/* Keeps the user's line breaks; long unbroken words wrap at 375 px. */
+.summary-notes {
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 </style>
