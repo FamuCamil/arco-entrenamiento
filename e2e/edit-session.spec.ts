@@ -269,8 +269,9 @@ async function expectEditFits(page: Page, label: string, locked: boolean) {
   expect(m.docOverflow, `${label} document`).toBeLessThanOrEqual(0)
   expect(m.mainOverflow, `${label} .app-main`).toBeLessThanOrEqual(0)
   expect(m.escapes, label).toEqual([])
-  // 6 inputs, select, textarea, the «Variable» label, «Guardar cambios» and «Cancelar».
-  expect(m.controls.length, label).toBe(11)
+  // 6 inputs, select, textarea, the «Variable» label, «Guardar cambios», «Cancelar» and
+  // «Borrar sesión».
+  expect(m.controls.length, label).toBe(12)
   for (const c of m.controls) {
     expect(c.height, `${label} ${c.name}`).toBeGreaterThanOrEqual(48)
     expect(c.left, `${label} ${c.name}`).toBeGreaterThanOrEqual(0)

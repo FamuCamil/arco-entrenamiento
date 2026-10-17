@@ -1,8 +1,11 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h, nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { useConfirm } from '@/composables/useConfirm'
 import { STORAGE_KEY } from '@/composables/usePersistence'
 import { STRUCTURE_LOCKED_MESSAGE } from '@/domain/sessionForm'
 import type { Session } from '@/domain/types'
@@ -44,11 +47,23 @@ const SUMMARY_WITH_ARCHER = '/session/s1/summary?archer=a1'
 
 /** Mounts the edit screen; `fromSummary` pushes the summary first, as the «Editar datos» link does. */
 async function view(id = 's1', fromSummary = false) {
+  const router = await editRouter(id, fromSummary)
+  const w = mount(EditSessionView, {
+    props: { id },
+    global: { plugins: [router] },
+    attachTo: document.body,
+  })
+  await flushPromises()
+  return { w, router }
+}
+
+/** A router already on the edit screen of `id`. */
+async function editRouter(id: string, fromSummary: boolean) {
   const stub = { template: '<div />' }
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/', component: stub },
+      { path: '/', name: 'sessions', component: stub },
       { path: '/session/:id/score/:archerId', name: 'scoring', component: stub },
       { path: '/session/:id/summary', name: 'summary', component: stub },
       { path: '/session/:id/edit', name: 'edit-session', component: stub },
@@ -65,13 +80,7 @@ async function view(id = 's1', fromSummary = false) {
   } else {
     await router.push({ name: 'edit-session', params: { id } })
   }
-  const w = mount(EditSessionView, {
-    props: { id },
-    global: { plugins: [router] },
-    attachTo: document.body,
-  })
-  await flushPromises()
-  return { w, router }
+  return router
 }
 
 type W = VueWrapper
@@ -343,6 +352,258 @@ describe('EditSessionView cancel', () => {
     await w.get('button.secondary').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/session/s1/summary')
+  })
+})
+
+describe('EditSessionView delete (CU-12)', () => {
+  const MESSAGE =
+    'Se eliminarán la sesión del 17/10/2026 y todas sus flechas. No se puede deshacer.'
+  const mounted: VueWrapper[] = []
+
+  afterEach(() => {
+    useConfirm().settle(false)
+    while (mounted.length) mounted.pop()!.unmount()
+  })
+
+  /** The edit screen plus the dialog host, as App.vue mounts them, attached for focus checks. */
+  async function viewWithDialog(id = 's1', fromSummary = false) {
+    const router = await editRouter(id, fromSummary)
+    const Host = defineComponent(() => () => [h(EditSessionView, { id }), h(ConfirmDialog)])
+    const w = mount(Host, { global: { plugins: [router] }, attachTo: document.body })
+    mounted.push(w)
+    await flushPromises()
+    const store = useSessionsStore()
+    return { w, router, store }
+  }
+
+  function seedTwo(overrides: Partial<Session> = {}) {
+    const other = makeSession({ id: 'other', date: '2026-10-01' })
+    const target = makeSession({ date: '2026-10-17', ...overrides })
+    target.archers[0]!.ends[0] = ['X', '9', null]
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([other, target])))
+    return { other, target }
+  }
+
+  const deleteButton = (w: VueWrapper) => w.get<HTMLButtonElement>('[data-testid="delete-session"]')
+  const dialog = (w: VueWrapper) => w.find('[role="dialog"]')
+
+  async function openDialog(w: VueWrapper) {
+    await deleteButton(w).trigger('click')
+    await flushPromises()
+    expect(dialog(w).exists()).toBe(true)
+  }
+
+  it.each([
+    ['an open', false],
+    ['a closed', true],
+  ])('%s session shows «Borrar sesión», type="button", outside the form', async (_, closed) => {
+    seedWithArrow({ closed })
+    const { w } = await view()
+    const button = deleteButton(w)
+    expect(button.text()).toBe('Borrar sesión')
+    expect(button.attributes('type')).toBe('button')
+    expect(button.element.disabled).toBe(false)
+    expect(button.classes()).not.toContain('secondary')
+    expect(button.element.closest('form')).toBeNull()
+    expect(button.element.closest('.edit-session')).not.toBeNull()
+    const zone = button.element.closest('section.danger-zone')!
+    expect(zone.getAttribute('aria-label')).toBe('Borrar sesión')
+    // After the form: its own section at the end of the screen.
+    const form = w.get('form').element
+    expect(form.compareDocumentPosition(zone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The form's own buttons are unchanged.
+    expect(save(w).text()).toBe('Guardar cambios')
+    expect(w.get('button.secondary').text()).toBe('Cancelar')
+  })
+
+  it('an unknown session has no delete button', async () => {
+    seed()
+    const { w } = await view('nope')
+    expect(w.find('[data-testid="delete-session"]').exists()).toBe(false)
+  })
+
+  it('opens the app dialog with the exact danger texts, never window.confirm', async () => {
+    seedTwo()
+    const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const { w } = await viewWithDialog()
+    await openDialog(w)
+    expect(w.get('#confirm-dialog-title').text()).toBe('¿Borrar la sesión?')
+    expect(w.get('#confirm-dialog-message').text()).toBe(MESSAGE)
+    expect(w.get('[data-testid="confirm-cancel"]').text()).toBe('Cancelar')
+    const accept = w.get('[data-testid="confirm-accept"]')
+    expect(accept.text()).toBe('Borrar')
+    expect(accept.classes()).not.toContain('is-safe')
+    expect(nativeConfirm).not.toHaveBeenCalled()
+  })
+
+  it('the message uses the stored date, not an unsaved edit of the date field', async () => {
+    seedTwo()
+    const { w } = await viewWithDialog()
+    await w.get('#es-date').setValue('2027-01-02')
+    await openDialog(w)
+    expect(w.get('#confirm-dialog-message').text()).toBe(MESSAGE)
+  })
+
+  it.each([
+    ['«Cancelar»', (w: VueWrapper) => w.get('[data-testid="confirm-cancel"]').trigger('click')],
+    [
+      'Escape',
+      () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      },
+    ],
+  ])('%s changes nothing, stays on the edit screen and refocuses the button', async (_, close) => {
+    seedTwo()
+    const before = localStorage.getItem(STORAGE_KEY)
+    const { w, router, store } = await viewWithDialog()
+    const remove = vi.spyOn(store, 'deleteSession')
+    const replace = vi.spyOn(router, 'replace')
+    await openDialog(w)
+    await close(w)
+    await flushPromises()
+    await nextTick()
+    expect(dialog(w).exists()).toBe(false)
+    expect(remove).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(store.sessions).toHaveLength(2)
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before)
+    expect(router.currentRoute.value.name).toBe('edit-session')
+    expect(document.activeElement).toBe(deleteButton(w).element)
+    expect(w.text()).not.toContain('No se encontró la sesión.')
+  })
+
+  it('«Borrar» replaces with home first, then deletes the session and persists it', async () => {
+    const { other } = seedTwo()
+    const { w, router, store } = await viewWithDialog('s1', true)
+    const remove = vi.spyOn(store, 'deleteSession')
+    const replace = vi.spyOn(router, 'replace')
+    const push = vi.spyOn(router, 'push')
+    const back = vi.spyOn(router, 'back')
+    const update = vi.spyOn(store, 'updateSession')
+    // Navigate-then-delete: when the route changes, the session must still exist.
+    const existedOnNavigation: boolean[] = []
+    router.afterEach((to) => {
+      if (to.name === 'sessions') existedOnNavigation.push(store.getSession('s1') !== undefined)
+    })
+    await openDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(existedOnNavigation).toEqual([true])
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenCalledWith({ name: 'sessions', state: { sessionDeleted: true } })
+    expect(push).not.toHaveBeenCalled()
+    expect(back).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.fullPath).toBe('/')
+    expect(router.options.history.state.sessionDeleted).toBe(true)
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove).toHaveBeenCalledWith('s1')
+    expect(update).not.toHaveBeenCalled()
+    expect(store.getSession('s1')).toBeUndefined()
+    expect(store.sessions).toEqual([other])
+    await nextTick()
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).sessions).toEqual([other])
+    expect(dialog(w).exists()).toBe(false)
+  })
+
+  it('replace leaves the edit entry out of the history: Back skips it', async () => {
+    seedTwo()
+    const { w, router } = await viewWithDialog('s1', true)
+    await openDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    router.back()
+    await flushPromises()
+    // [/, summary, /]: Back lands on the stale summary, never on the edit form.
+    expect(router.currentRoute.value.fullPath).toBe(SUMMARY_WITH_ARCHER)
+  })
+
+  it('unsaved and invalid form changes are discarded, not saved, and still delete', async () => {
+    seedTwo()
+    const { w, store } = await viewWithDialog()
+    const update = vi.spyOn(store, 'updateSession')
+    await w.get('#es-location').setValue('No guardar')
+    await w.get('#es-date').setValue('')
+    expect(save(w).element.disabled).toBe(true)
+    await openDialog(w)
+    expect(w.get('#confirm-dialog-message').text()).toBe(MESSAGE)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(update).not.toHaveBeenCalled()
+    expect(store.getSession('s1')).toBeUndefined()
+    expect(store.getSession('other')).toMatchObject({ location: 'Club' })
+  })
+
+  it('a finalized session is deleted too', async () => {
+    seedTwo({ closed: true })
+    const { w, store } = await viewWithDialog()
+    await openDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(store.getSession('s1')).toBeUndefined()
+    expect(store.sessions).toHaveLength(1)
+  })
+
+  it('a double tap on «Borrar» deletes once and navigates once', async () => {
+    seedTwo()
+    const { w, router, store } = await viewWithDialog()
+    const remove = vi.spyOn(store, 'deleteSession')
+    const replace = vi.spyOn(router, 'replace')
+    await openDialog(w)
+    const accept = w.get<HTMLButtonElement>('[data-testid="confirm-accept"]').element
+    accept.click()
+    accept.click()
+    await flushPromises()
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(store.sessions).toHaveLength(1)
+  })
+
+  it('while the navigation is pending: button disabled, save, cancel and a second delete ignored', async () => {
+    seedTwo()
+    const { w, router, store } = await viewWithDialog()
+    const update = vi.spyOn(store, 'updateSession')
+    const remove = vi.spyOn(store, 'deleteSession')
+    const back = vi.spyOn(router, 'back')
+    let finish!: () => void
+    const replace = vi.spyOn(router, 'replace').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(undefined)
+        }),
+    )
+    await w.get('#es-location').setValue('Otro')
+    await openDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(deleteButton(w).element.disabled).toBe(true)
+    // Still mounted on the form (nothing deleted yet); stray taps do nothing.
+    await submit(w)
+    await w.get('button.secondary').trigger('click')
+    deleteButton(w).element.disabled = false
+    await deleteButton(w).trigger('click')
+    await flushPromises()
+    expect(dialog(w).exists()).toBe(false)
+    expect(update).not.toHaveBeenCalled()
+    expect(back).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(remove).not.toHaveBeenCalled()
+    finish()
+    await flushPromises()
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(store.getSession('s1')).toBeUndefined()
+  })
+
+  it('if the navigation fails, the session is still deleted and the not-found screen shows', async () => {
+    seedTwo()
+    const { w, router, store } = await viewWithDialog()
+    vi.spyOn(router, 'replace').mockResolvedValue(undefined)
+    await openDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(store.getSession('s1')).toBeUndefined()
+    expect(w.text()).toContain('No se encontró la sesión.')
+    expect(w.find('form').exists()).toBe(false)
   })
 })
 

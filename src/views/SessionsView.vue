@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Home: session cards, most recent first (CU-09), and the backup export/import (CU-11).
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import SessionCard from '@/components/SessionCard.vue'
@@ -23,6 +23,13 @@ const { confirm } = useConfirm()
 const listedSessions = computed(() =>
   store.sortedSessions.filter((session) => session.archers[0] !== undefined),
 )
+
+const heading = ref<HTMLElement | null>(null)
+
+// After deleting a session (CU-12) the deleted screen's button is gone; focus lands here instead.
+onMounted(() => {
+  if (router.options.history.state.sessionDeleted === true) heading.value?.focus()
+})
 
 function newSession() {
   void router.push({ name: 'new-session' })
@@ -154,7 +161,7 @@ async function onFileChosen(event: Event) {
 
 <template>
   <section>
-    <h2>Sesiones</h2>
+    <h2 ref="heading" tabindex="-1">Sesiones</h2>
     <button type="button" class="new-session" @click="newSession">Nueva sesión</button>
     <ul v-if="listedSessions.length > 0" class="session-list" aria-label="Sesiones guardadas">
       <li v-for="session in listedSessions" :key="session.id">

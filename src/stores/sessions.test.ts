@@ -1049,3 +1049,92 @@ describe('updateSession (CU-11)', () => {
     expect(reloaded.archers[0]!.ends[0]).toEqual([null, null])
   })
 })
+
+describe('deleteSession (CU-12)', () => {
+  function setup() {
+    const a = makeSession({ id: 'a', date: '2026-10-14' })
+    const b = makeSession({ id: 'b', closed: true })
+    b.archers[0]!.ends[0] = ['X', '9', '8']
+    const c = makeSession({ id: 'c', date: '2026-10-16' })
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([a, b, c])))
+    return { store: useSessionsStore(), a, b, c }
+  }
+
+  it('removes the session with that id', () => {
+    const { store } = setup()
+    store.deleteSession('a')
+    expect(store.getSession('a')).toBeUndefined()
+    expect(store.sessions.map((s) => s.id)).toEqual(['b', 'c'])
+  })
+
+  it('leaves the other sessions untouched: same values and the same objects', () => {
+    const { store, b, c } = setup()
+    const keptB = toRaw(store.getSession('b'))
+    const keptC = toRaw(store.getSession('c'))
+    const array = toRaw(store.sessions)
+    store.deleteSession('a')
+    expect(store.sessions).toEqual([b, c])
+    expect(toRaw(store.getSession('b'))).toBe(keptB)
+    expect(toRaw(store.getSession('c'))).toBe(keptC)
+    // Spliced in place, not reassigned.
+    expect(toRaw(store.sessions)).toBe(array)
+  })
+
+  it('persists the deletion through the state watch', async () => {
+    const { store } = setup()
+    store.deleteSession('c')
+    await nextTick()
+    expect(stored().sessions.map((s: { id: string }) => s.id)).toEqual(['a', 'b'])
+    setActivePinia(createPinia())
+    expect(useSessionsStore().getSession('c')).toBeUndefined()
+  })
+
+  it('deletes a closed session with its arrows', async () => {
+    const { store } = setup()
+    store.deleteSession('b')
+    expect(store.getSession('b')).toBeUndefined()
+    await nextTick()
+    expect(stored().sessions.map((s: { id: string }) => s.id)).toEqual(['a', 'c'])
+  })
+
+  it('an unknown id is a no-op: nothing changes and nothing is saved', async () => {
+    const { store } = setup()
+    const before = JSON.stringify(store.sessions)
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    expect(() => store.deleteSession('nope')).not.toThrow()
+    expect(JSON.stringify(store.sessions)).toBe(before)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it('deleting the only session leaves an empty, persisted list', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState()))
+    const store = useSessionsStore()
+    store.deleteSession('s1')
+    expect(store.sessions).toEqual([])
+    expect(store.sortedSessions).toEqual([])
+    await nextTick()
+    expect(stored()).toEqual(makeState([]))
+  })
+
+  it('an export after deleting no longer contains the session', () => {
+    const { store } = setup()
+    store.deleteSession('b')
+    const ids = JSON.parse(store.exportJson()).sessions.map((s: { id: string }) => s.id)
+    expect(ids).toEqual(['a', 'c'])
+  })
+
+  it('importing a backup made before deleting adds it back as new (CU-15 merge)', async () => {
+    const { store, b } = setup()
+    const backup = store.exportJson()
+    store.deleteSession('b')
+    const preview = store.importJson(backup)
+    expect(preview).toMatchObject({ ok: true, total: 3, added: 1, updated: 0, unchanged: 2 })
+    if (!preview.ok) throw new Error(preview.error)
+    expect(preview.apply()).toEqual({ added: 1, updated: 0, unchanged: 2, saved: true })
+    expect(store.getSession('b')).toEqual(b)
+    await nextTick()
+    expect(stored().sessions.map((s: { id: string }) => s.id)).toEqual(['a', 'c', 'b'])
+  })
+})

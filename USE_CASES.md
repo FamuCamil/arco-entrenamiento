@@ -23,3 +23,4 @@ Statuses:
 | 11 | [use-cases/11-copia-seguridad.md](use-cases/11-copia-seguridad.md) | CU-15 Copia de seguridad (exportar / importar JSON) | done | 2026-10-17 |
 | 12 | [use-cases/12-resumen-sesion.md](use-cases/12-resumen-sesion.md) | CU-08 Resumen de la sesión | done | 2026-10-17 |
 | 13 | [use-cases/13-editar-sesion.md](use-cases/13-editar-sesion.md) | CU-11 Editar sesión | done | 2026-10-17 |
+| 14 | [use-cases/14-borrar-sesion.md](use-cases/14-borrar-sesion.md) | CU-12 Borrar sesión | done | 2026-10-17 |
