@@ -5,6 +5,7 @@ import {
   endTotal,
   firstEmptyCell,
   grandTotal,
+  hasAnyArrow,
   maxArrowPoints,
   nextCell,
   seriesRunningTotal,
@@ -13,7 +14,7 @@ import {
   zonePoints,
 } from './scoring'
 import { getTargetFace } from './targetFaces'
-import type { End, TargetFace } from './types'
+import type { Archer, End, TargetFace } from './types'
 
 function face(id: string): TargetFace {
   const f = getTargetFace(id)
@@ -476,5 +477,43 @@ describe('averagePerArrow', () => {
         face('3d'),
       ),
     ).toBe(8)
+  })
+})
+
+describe('hasAnyArrow (CU-11)', () => {
+  function archer(id: string, ends: End[]): Archer {
+    return { id, name: id, position: 'A', ends }
+  }
+
+  it('is false without archers, without ends, or with every cell empty', () => {
+    expect(hasAnyArrow([])).toBe(false)
+    expect(hasAnyArrow([archer('a1', [])])).toBe(false)
+    expect(
+      hasAnyArrow([
+        archer('a1', [
+          [null, null, null],
+          [null, null, null],
+        ]),
+        archer('a2', [[null, null, null]]),
+      ]),
+    ).toBe(false)
+  })
+
+  it('is true with a single cell in any end of any archer', () => {
+    expect(hasAnyArrow([archer('a1', [[null, null, 'X']])])).toBe(true)
+    expect(
+      hasAnyArrow([
+        archer('a1', [[null, null, null]]),
+        archer('a2', [
+          [null, null, null],
+          [null, 'M', null],
+        ]),
+      ]),
+    ).toBe(true)
+  })
+
+  it('counts a miss and a key unknown to every face as an arrow', () => {
+    expect(hasAnyArrow([archer('a1', [['M', null]])])).toBe(true)
+    expect(hasAnyArrow([archer('a1', [['zz', null]])])).toBe(true)
   })
 })
