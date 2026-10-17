@@ -149,6 +149,7 @@ async function seedSession(
     arrowsPerEnd: number
     ends: (string | null)[][]
     closed: boolean
+    notes?: string
   },
 ) {
   const { ends, ...fields } = session
@@ -159,10 +160,10 @@ async function seedSession(
       {
         id: 'worst',
         date: '2026-10-15',
-        notes: '',
         createdAt: 1,
         updatedAt: 1,
         archers: [{ id: 'worst-archer', name: 'Yo', position: 'A', ends }],
+        notes: '',
         ...fields,
       },
     ],
@@ -222,12 +223,39 @@ async function expectSummaryFits(page: Page, label: string) {
   expect(m.docOverflow, `${label} document`).toBeLessThanOrEqual(0)
   expect(m.escapes, label).toEqual([])
   expect(m.clipped, label).toEqual([])
-  for (const id of ['summary-back', 'summary-home'])
+  for (const id of ['summary-back', 'summary-home', 'summary-edit'])
     await expectTouchTargetInViewport(page, page.getByTestId(id))
   return m
 }
 
+/** Rendered line count of an element's text (distinct line-box tops). Runs in the page. */
+function renderedLines(el: Element): number {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  const tops = Array.from(range.getClientRects())
+    .filter((r) => r.width > 0)
+    .map((r) => Math.round(r.top))
+  return new Set(tops).size
+}
+
+/** The notes block keeps the user's line breaks and wraps the unbroken word, no overflow. */
+async function expectNotesWrap(page: Page, label: string) {
+  const notes = page.getByTestId('summary-notes')
+  const m = await notes.evaluate((el) => ({
+    overflow: el.scrollWidth - el.clientWidth,
+    right: el.getBoundingClientRect().right,
+  }))
+  const lines = await notes.evaluate(renderedLines)
+  expect(m.overflow, `${label} notes`).toBeLessThanOrEqual(0)
+  expect(m.right, `${label} notes`).toBeLessThanOrEqual(375)
+  // 4 source lines (one blank), each sentence and the 60-char word wrapping: well over 4.
+  expect(lines, `${label} notes`).toBeGreaterThan(4)
+}
+
 const LONG_PLACE = 'Polideportivo Municipal de Villanueva de la Cañada, pista cubierta norte'
+// CU-11: a long multi-line note with a 60-character unbroken word must wrap inside 375 px.
+const LONG_WORD = 'Supercalifragilisticoespialidosoarqueroconvientolateralfuert'
+const LONG_NOTES = `Viento lateral fuerte desde la izquierda toda la mañana.\n${LONG_WORD}\n\nRevisar el reposaflechas y la tensión de la cuerda antes de la próxima sesión.`
 
 test('worst case fits 375 px: 3D 2×6×12 all «11» («1584/1584»), long place, finalized', async ({
   page,
@@ -243,7 +271,9 @@ test('worst case fits 375 px: 3D 2×6×12 all «11» («1584/1584»), long place
     arrowsPerEnd: 12,
     ends: Array.from({ length: 12 }, () => Array.from({ length: 12 }, () => '11')),
     closed: true,
+    notes: LONG_NOTES,
   })
+  expect(LONG_WORD.length).toBe(60)
 
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
@@ -264,12 +294,19 @@ test('worst case fits 375 px: 3D 2×6×12 all «11» («1584/1584»), long place
     await expect(page.getByTestId('summary-average')).toHaveText('Promedio: 11.00')
     await expect(zoneCount(page, '11')).toHaveText('144')
     await expect(page.getByRole('link', { name: 'Ver tabla' })).toBeVisible()
+    await expect(page.getByTestId('summary-edit')).toHaveText('Editar datos')
+    const notes = page.getByTestId('summary-notes')
+    await expect(notes).toBeVisible()
+    expect(await notes.evaluate((el) => el.textContent)).toBe(LONG_NOTES)
     await expectSummaryFits(page, scheme)
+    await expectNotesWrap(page, scheme)
   }
 
   // Margin for CI's wider Linux fonts: still fits with every glyph 10 % wider.
   await page.addStyleTag({ content: '.summary { letter-spacing: 0.1em; }' })
   await expectSummaryFits(page, 'wide glyphs')
+  await expectNotesWrap(page, 'wide glyphs')
+  await expect(page.getByTestId('summary-edit')).toBeVisible()
 
   expect(problems).toEqual([])
 })

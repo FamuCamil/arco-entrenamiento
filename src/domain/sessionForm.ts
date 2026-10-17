@@ -1,10 +1,12 @@
-// New-session form (CU-01/CU-02): initial values, template application and validation.
-// Pure, no Vue imports. The view keeps the raw values and renders the errors.
+// Session form: initial values, template application and validation for a new session
+// (CU-01/CU-02), and pre-fill plus validation for editing one (CU-11).
+// Pure, no Vue imports. The views keep the raw values and render the errors.
 
-import type { SessionInput } from '@/stores/sessions'
+import type { SessionInput, SessionPatch } from '@/stores/sessions'
 
 import { getTargetFace } from './targetFaces'
 import { getTemplate, type SessionTemplate } from './templates'
+import type { Session } from './types'
 
 export const DEFAULT_TEMPLATE_ID = 'sala-18'
 export const CUSTOM_TEMPLATE_ID = 'personalizada'
@@ -117,14 +119,34 @@ const MESSAGES = {
   arrowsPerEnd: `Entre ${SESSION_LIMITS.arrowsPerEnd.min} y ${SESSION_LIMITS.arrowsPerEnd.max} flechas`,
 } as const satisfies Record<SessionFormField, string>
 
-export function validateSessionForm(values: SessionFormValues): SessionFormValidation {
-  const errors: SessionFormErrors = {}
+/** Shown, and linked by aria-describedby, while face and structure are locked (CU-11 AC3). */
+export const STRUCTURE_LOCKED_MESSAGE =
+  'La diana y la estructura no se pueden cambiar porque la sesión ya tiene flechas anotadas.'
 
+interface DetailsResult {
+  date: string
+  distance: number | null
+}
+
+interface StructureResult {
+  faceId: string
+  seriesCount: number | null
+  endsPerSeries: number | null
+  arrowsPerEnd: number | null
+}
+
+/** Date and distance: editable always, so checked both when creating and when editing. */
+function validateDetails(values: SessionFormValues, errors: SessionFormErrors): DetailsResult {
   if (!isValidIsoDate(values.date)) errors.date = MESSAGES.date
 
   const distance = values.variableDistance ? 0 : parseWhole(values.distance)
   if (distance === null) errors.distance = MESSAGES.distance
 
+  return { date: values.date, distance }
+}
+
+/** Face and the 3 structure fields: skipped while editing a session that has arrows. */
+function validateStructure(values: SessionFormValues, errors: SessionFormErrors): StructureResult {
   if (!getTargetFace(values.faceId)) errors.faceId = MESSAGES.faceId
 
   const seriesCount = parseWhole(values.seriesCount)
@@ -139,18 +161,76 @@ export function validateSessionForm(values: SessionFormValues): SessionFormValid
   if (!inRange(arrowsPerEnd, SESSION_LIMITS.arrowsPerEnd))
     errors.arrowsPerEnd = MESSAGES.arrowsPerEnd
 
+  return { faceId: values.faceId, seriesCount, endsPerSeries, arrowsPerEnd }
+}
+
+export function validateSessionForm(values: SessionFormValues): SessionFormValidation {
+  const errors: SessionFormErrors = {}
+  const details = validateDetails(values, errors)
+  const structure = validateStructure(values, errors)
+
   if (Object.keys(errors).length > 0) return { errors, input: null }
 
   return {
     errors,
     input: {
-      date: values.date,
+      date: details.date,
       location: values.location.trim(),
-      distance: distance!,
-      faceId: values.faceId,
-      seriesCount: seriesCount!,
-      endsPerSeries: endsPerSeries!,
-      arrowsPerEnd: arrowsPerEnd!,
+      distance: details.distance!,
+      faceId: structure.faceId,
+      seriesCount: structure.seriesCount!,
+      endsPerSeries: structure.endsPerSeries!,
+      arrowsPerEnd: structure.arrowsPerEnd!,
+      notes: values.notes.trim(),
+    },
+  }
+}
+
+/** The stored session as raw form values (CU-11). An unknown faceId is kept as is. */
+export function sessionToFormValues(session: Session): SessionFormValues {
+  return {
+    date: session.date,
+    location: session.location,
+    variableDistance: session.distance === 0,
+    distance: session.distance === 0 ? '' : String(session.distance),
+    faceId: session.faceId,
+    seriesCount: String(session.seriesCount),
+    endsPerSeries: String(session.endsPerSeries),
+    arrowsPerEnd: String(session.arrowsPerEnd),
+    notes: session.notes,
+  }
+}
+
+export interface SessionEditValidation {
+  errors: SessionFormErrors
+  /** Non-null only when `errors` is empty. */
+  patch: SessionPatch | null
+}
+
+/**
+ * Edit form (CU-11). Unlocked: the same rules and errors as creating, and the patch holds every
+ * field. Locked (the session has arrows): face and structure are neither validated nor sent, so a
+ * legacy over-limit or unknown-face session can still save its date, place, distance and notes.
+ */
+export function validateSessionEdit(
+  values: SessionFormValues,
+  structureLocked: boolean,
+): SessionEditValidation {
+  if (!structureLocked) {
+    const { errors, input } = validateSessionForm(values)
+    return { errors, patch: input }
+  }
+
+  const errors: SessionFormErrors = {}
+  const details = validateDetails(values, errors)
+  if (Object.keys(errors).length > 0) return { errors, patch: null }
+
+  return {
+    errors,
+    patch: {
+      date: details.date,
+      location: values.location.trim(),
+      distance: details.distance!,
       notes: values.notes.trim(),
     },
   }

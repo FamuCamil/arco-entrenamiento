@@ -6,10 +6,14 @@ import {
   DEFAULT_TEMPLATE_ID,
   initialFormValues,
   SESSION_LIMITS,
+  sessionToFormValues,
+  STRUCTURE_LOCKED_MESSAGE,
+  validateSessionEdit,
   validateSessionForm,
   type SessionFormValues,
 } from './sessionForm'
 import { getTemplate } from './templates'
+import { makeSession } from '../../tests/fixtures'
 
 const VALID: SessionFormValues = {
   date: '2026-10-17',
@@ -349,5 +353,154 @@ describe('validateSessionForm', () => {
     ]) {
       expect(validateSessionForm(applyTemplate(VALID, template(id))).input, id).not.toBeNull()
     }
+  })
+})
+
+describe('STRUCTURE_LOCKED_MESSAGE (CU-11)', () => {
+  it('is the use case text', () => {
+    expect(STRUCTURE_LOCKED_MESSAGE).toBe(
+      'La diana y la estructura no se pueden cambiar porque la sesión ya tiene flechas anotadas.',
+    )
+  })
+})
+
+describe('sessionToFormValues (CU-11)', () => {
+  it('maps every field of a normal session to raw strings', () => {
+    expect(sessionToFormValues(makeSession({ notes: 'Viento' }))).toEqual({
+      date: '2026-10-15',
+      location: 'Club',
+      variableDistance: false,
+      distance: '18',
+      faceId: 'wa-40',
+      seriesCount: '2',
+      endsPerSeries: '10',
+      arrowsPerEnd: '3',
+      notes: 'Viento',
+    })
+  })
+
+  it('distance 0 checks «Variable» and leaves the distance blank', () => {
+    const values = sessionToFormValues(makeSession({ distance: 0 }))
+    expect(values.variableDistance).toBe(true)
+    expect(values.distance).toBe('')
+  })
+
+  it('keeps legacy over-limit structure and a non-integer distance as stored', () => {
+    const values = sessionToFormValues(
+      makeSession({ seriesCount: 25, endsPerSeries: 40, arrowsPerEnd: 13, distance: 18.5 }),
+    )
+    expect(values).toMatchObject({
+      seriesCount: '25',
+      endsPerSeries: '40',
+      arrowsPerEnd: '13',
+      distance: '18.5',
+      variableDistance: false,
+    })
+  })
+
+  it('keeps an unknown faceId, raw place and multi-line notes untouched', () => {
+    const values = sessionToFormValues(
+      makeSession({ faceId: 'missing-face', location: '  Club  ', notes: 'Línea 1\nLínea 2' }),
+    )
+    expect(values.faceId).toBe('missing-face')
+    expect(values.location).toBe('  Club  ')
+    expect(values.notes).toBe('Línea 1\nLínea 2')
+  })
+
+  it('round-trips: a stored valid session validates back to its own values', () => {
+    const session = makeSession({ notes: 'n' })
+    expect(validateSessionEdit(sessionToFormValues(session), false).patch).toEqual({
+      date: session.date,
+      location: session.location,
+      distance: session.distance,
+      faceId: session.faceId,
+      seriesCount: session.seriesCount,
+      endsPerSeries: session.endsPerSeries,
+      arrowsPerEnd: session.arrowsPerEnd,
+      notes: session.notes,
+    })
+  })
+})
+
+describe('validateSessionEdit (CU-11)', () => {
+  describe('unlocked', () => {
+    it('a valid form gives the same full input as creating, trimmed', () => {
+      const values = form({ location: '  Sala  ', notes: '  a\nb  ', arrowsPerEnd: '5' })
+      const result = validateSessionEdit(values, false)
+      expect(result.errors).toEqual({})
+      expect(result.patch).toEqual(validateSessionForm(values).input)
+      expect(result.patch).toEqual({
+        date: '2026-10-17',
+        location: 'Sala',
+        distance: 18,
+        faceId: 'wa-40',
+        seriesCount: 2,
+        endsPerSeries: 10,
+        arrowsPerEnd: 5,
+        notes: 'a\nb',
+      })
+    })
+
+    it('errors match validateSessionForm exactly and the patch is null', () => {
+      for (const values of [
+        form({ arrowsPerEnd: '13' }),
+        form({ faceId: 'missing-face' }),
+        form({ date: '', distance: 'x', seriesCount: '0', endsPerSeries: '31' }),
+        form({ seriesCount: '25', endsPerSeries: '40', arrowsPerEnd: '13' }),
+      ]) {
+        const result = validateSessionEdit(values, false)
+        expect(result.errors).toEqual(validateSessionForm(values).errors)
+        expect(Object.keys(result.errors).length).toBeGreaterThan(0)
+        expect(result.patch).toBeNull()
+      }
+    })
+
+    it('Variable sends distance 0', () => {
+      expect(
+        validateSessionEdit(form({ variableDistance: true, distance: '' }), false).patch?.distance,
+      ).toBe(0)
+    })
+  })
+
+  describe('locked', () => {
+    it('over-limit structure and an unknown face give no errors; patch has only the details', () => {
+      const result = validateSessionEdit(
+        form({
+          faceId: 'missing-face',
+          seriesCount: '25',
+          endsPerSeries: '40',
+          arrowsPerEnd: '13',
+          location: '  Nuevo  ',
+          notes: ' n ',
+        }),
+        true,
+      )
+      expect(result.errors).toEqual({})
+      expect(result.patch).toEqual({
+        date: '2026-10-17',
+        location: 'Nuevo',
+        distance: 18,
+        notes: 'n',
+      })
+    })
+
+    it('a valid structure is still not sent', () => {
+      const patch = validateSessionEdit(form(), true).patch!
+      expect(Object.keys(patch).sort()).toEqual(['date', 'distance', 'location', 'notes'])
+    })
+
+    it('an invalid date or distance still errors with the creation messages and a null patch', () => {
+      const date = validateSessionEdit(form({ date: '2026-02-30' }), true)
+      expect(date.errors).toEqual({
+        date: validateSessionForm(form({ date: '2026-02-30' })).errors.date,
+      })
+      expect(date.patch).toBeNull()
+
+      const distance = validateSessionEdit(form({ distance: '18.5', arrowsPerEnd: '99' }), true)
+      expect(distance.errors).toEqual({
+        distance: validateSessionForm(form({ distance: '18.5' })).errors.distance,
+      })
+      expect(distance.patch).toBeNull()
+    })
   })
 })

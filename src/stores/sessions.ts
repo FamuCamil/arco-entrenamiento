@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { usePersistence } from '@/composables/usePersistence'
 import { parseBackup, planMerge, serializeBackup } from '@/domain/backup'
 import { createId } from '@/domain/ids'
-import { sortEnd } from '@/domain/scoring'
+import { hasAnyArrow, sortEnd } from '@/domain/scoring'
 import { getTargetFace } from '@/domain/targetFaces'
 import type { Archer, End, Session } from '@/domain/types'
 
@@ -21,6 +21,9 @@ export interface SessionInput {
   arrowsPerEnd: number
   notes?: string
 }
+
+/** Fields updateSession may change (CU-11); a missing key leaves that field as it is. */
+export type SessionPatch = Partial<SessionInput>
 
 /** Result of importJson: either the parse error, or the merge counts plus a way to apply it. */
 export type ImportPreview =
@@ -146,6 +149,81 @@ export const useSessionsStore = defineStore('sessions', () => {
     session.updatedAt = Date.now()
   }
 
+  /**
+   * Edits a session's data (CU-11). Closed sessions are editable and stay closed.
+   * - Each field applies only if present and valid: date and notes strings, location a string
+   *   (stored trimmed), distance finite and ≥ 0, faceId a catalogue face, and the structure
+   *   triple (patch value, else the stored one) all positive integers, else the whole structure
+   *   part is ignored.
+   * - With any arrow scored, faceId and the structure are silently ignored; the rest still applies.
+   * - A real structure change (only possible without arrows) regenerates every archer's ends empty
+   *   with the new size; an unchanged structure never touches the ends.
+   * - updatedAt changes only if some field really changed. id, createdAt, closed, archers' ids,
+   *   names and arrows are never touched. A missing session is a no-op.
+   */
+  function updateSession(id: string, patch: SessionPatch): void {
+    const session = getSession(id)
+    if (!session) return
+    let changed = false
+
+    if (typeof patch.date === 'string' && patch.date !== session.date) {
+      session.date = patch.date
+      changed = true
+    }
+    if (typeof patch.location === 'string') {
+      const location = patch.location.trim()
+      if (location !== session.location) {
+        session.location = location
+        changed = true
+      }
+    }
+    if (
+      typeof patch.distance === 'number' &&
+      Number.isFinite(patch.distance) &&
+      patch.distance >= 0 &&
+      patch.distance !== session.distance
+    ) {
+      session.distance = patch.distance
+      changed = true
+    }
+    if (typeof patch.notes === 'string' && patch.notes !== session.notes) {
+      session.notes = patch.notes
+      changed = true
+    }
+
+    if (!hasAnyArrow(session.archers)) {
+      if (
+        typeof patch.faceId === 'string' &&
+        patch.faceId !== session.faceId &&
+        getTargetFace(patch.faceId)
+      ) {
+        session.faceId = patch.faceId
+        changed = true
+      }
+      const seriesCount = patch.seriesCount ?? session.seriesCount
+      const endsPerSeries = patch.endsPerSeries ?? session.endsPerSeries
+      const arrowsPerEnd = patch.arrowsPerEnd ?? session.arrowsPerEnd
+      const valid = [seriesCount, endsPerSeries, arrowsPerEnd].every(
+        (n) => Number.isInteger(n) && n > 0,
+      )
+      const structureChanged =
+        seriesCount !== session.seriesCount ||
+        endsPerSeries !== session.endsPerSeries ||
+        arrowsPerEnd !== session.arrowsPerEnd
+      if (valid && structureChanged) {
+        session.seriesCount = seriesCount
+        session.endsPerSeries = endsPerSeries
+        session.arrowsPerEnd = arrowsPerEnd
+        for (const archer of session.archers) {
+          archer.ends = emptyEnds(seriesCount * endsPerSeries, arrowsPerEnd)
+        }
+        changed = true
+      }
+    }
+
+    if (changed) session.updatedAt = Date.now()
+  }
+
   /** The whole state as backup JSON (CU-11). Works with zero sessions. */
   function exportJson(now: Date = new Date()): string {
     return serializeBackup(
@@ -204,6 +282,7 @@ export const useSessionsStore = defineStore('sessions', () => {
     setArrow,
     deleteEnd,
     setClosed,
+    updateSession,
     exportJson,
     importJson,
   }

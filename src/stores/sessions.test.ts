@@ -1,10 +1,16 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, toRaw } from 'vue'
 
 import { STORAGE_KEY } from '@/composables/usePersistence'
+import type { Session } from '@/domain/types'
 import { makeSession, makeState } from '../../tests/fixtures'
-import { DEFAULT_ARCHER_NAME, useSessionsStore, type SessionInput } from './sessions'
+import {
+  DEFAULT_ARCHER_NAME,
+  useSessionsStore,
+  type SessionInput,
+  type SessionPatch,
+} from './sessions'
 
 const INPUT: SessionInput = {
   date: '2026-10-15',
@@ -799,5 +805,247 @@ describe('exportJson / importJson (CU-11)', () => {
     expect(store.sessions.map((s) => s.id)).toEqual(['a'])
     expect(store.profileName).toBe('Luis')
     expect(localStorage.getItem(STORAGE_KEY)).toBe(storedBefore)
+  })
+})
+
+describe('updateSession (CU-11)', () => {
+  function setup(overrides: Partial<Session> = {}, arrow = false) {
+    const session = makeSession(overrides)
+    if (arrow) session.archers[0]!.ends[0] = ['X', '9', null]
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([session])))
+    return useSessionsStore()
+  }
+
+  function withSecondArcher(store: ReturnType<typeof useSessionsStore>) {
+    const s = store.getSession('s1')!
+    s.archers.push({
+      id: 'a2',
+      name: 'Otra',
+      position: 'B',
+      ends: s.archers[0]!.ends.map((end) => end.map(() => null)),
+    })
+    s.updatedAt = 1
+  }
+
+  const DETAILS: SessionPatch = {
+    date: '2026-10-20',
+    location: '  Polideportivo  ',
+    distance: 25,
+    notes: 'Viento\nfrío',
+  }
+
+  it('applies date, distance and notes, stores the place trimmed, bumps updatedAt and persists', async () => {
+    const store = setup()
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.updateSession('s1', DETAILS)
+    const s = store.getSession('s1')!
+    expect(s).toMatchObject({
+      date: '2026-10-20',
+      location: 'Polideportivo',
+      distance: 25,
+      notes: 'Viento\nfrío',
+      updatedAt: 9000,
+    })
+    await nextTick()
+    expect(stored().sessions[0]).toMatchObject({ location: 'Polideportivo', updatedAt: 9000 })
+  })
+
+  it('distance 0 (Variable) is applied', () => {
+    const store = setup()
+    store.updateSession('s1', { distance: 0 })
+    expect(store.getSession('s1')!.distance).toBe(0)
+  })
+
+  it('without arrows, a structure change regenerates every archer’s ends empty with the new size', () => {
+    const store = setup()
+    withSecondArcher(store)
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.updateSession('s1', { seriesCount: 3, endsPerSeries: 4, arrowsPerEnd: 5 })
+    const s = store.getSession('s1')!
+    expect([s.seriesCount, s.endsPerSeries, s.arrowsPerEnd]).toEqual([3, 4, 5])
+    expect(s.updatedAt).toBe(9000)
+    for (const archer of s.archers) {
+      expect(archer.ends).toHaveLength(12)
+      for (const end of archer.ends) expect(end).toEqual([null, null, null, null, null])
+    }
+    expect(s.archers.map((a) => [a.id, a.name, a.position])).toEqual([
+      ['a1', 'Yo', 'A'],
+      ['a2', 'Otra', 'B'],
+    ])
+  })
+
+  it('a partial structure patch keeps the other stored values', () => {
+    const store = setup()
+    store.updateSession('s1', { arrowsPerEnd: 6 })
+    const s = store.getSession('s1')!
+    expect([s.seriesCount, s.endsPerSeries, s.arrowsPerEnd]).toEqual([2, 10, 6])
+    expect(s.archers[0]!.ends).toHaveLength(20)
+    expect(s.archers[0]!.ends[19]).toHaveLength(6)
+  })
+
+  it('an unchanged structure never touches the ends array', () => {
+    const store = setup()
+    const ends = store.getSession('s1')!.archers[0]!.ends
+    store.updateSession('s1', { seriesCount: 2, endsPerSeries: 10, arrowsPerEnd: 3, notes: 'x' })
+    expect(store.getSession('s1')!.archers[0]!.ends).toBe(ends)
+  })
+
+  it('without arrows, a catalogue face change applies', () => {
+    const store = setup()
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.updateSession('s1', { faceId: 'wa-field' })
+    expect(store.getSession('s1')!.faceId).toBe('wa-field')
+    expect(store.getSession('s1')!.updatedAt).toBe(9000)
+  })
+
+  it('with an arrow, face and structure are ignored, details still apply, ends unchanged', () => {
+    const store = setup({}, true)
+    const before = structuredClone(toRaw(store.getSession('s1')!.archers))
+    store.updateSession('s1', {
+      ...DETAILS,
+      faceId: 'wa-field',
+      seriesCount: 1,
+      endsPerSeries: 2,
+      arrowsPerEnd: 6,
+    })
+    const s = store.getSession('s1')!
+    expect(s).toMatchObject({
+      faceId: 'wa-40',
+      seriesCount: 2,
+      endsPerSeries: 10,
+      arrowsPerEnd: 3,
+      location: 'Polideportivo',
+      notes: 'Viento\nfrío',
+    })
+    expect(s.archers).toEqual(before)
+    expect(s.archers[0]!.ends[0]).toEqual(['X', '9', null])
+  })
+
+  it('an arrow in a second archer also locks face and structure', () => {
+    const store = setup()
+    withSecondArcher(store)
+    store.getSession('s1')!.archers[1]!.ends[5]![1] = 'M'
+    store.updateSession('s1', { faceId: '3d', arrowsPerEnd: 4 })
+    const s = store.getSession('s1')!
+    expect([s.faceId, s.arrowsPerEnd]).toEqual(['wa-40', 3])
+    expect(s.archers[1]!.ends[5]).toEqual([null, 'M', null])
+  })
+
+  it('with an arrow, a face/structure-only patch changes nothing and keeps updatedAt', async () => {
+    const store = setup({}, true)
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    const before = JSON.stringify(store.sessions)
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.updateSession('s1', { faceId: '3d', seriesCount: 1, endsPerSeries: 1, arrowsPerEnd: 1 })
+    expect(JSON.stringify(store.sessions)).toBe(before)
+    expect(store.getSession('s1')!.updatedAt).toBe(1)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it('a patch identical to the stored values keeps updatedAt and saves nothing', async () => {
+    const store = setup({ notes: 'n' })
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    const s = store.getSession('s1')!
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.updateSession('s1', {
+      date: s.date,
+      location: '  Club ',
+      distance: s.distance,
+      faceId: s.faceId,
+      seriesCount: s.seriesCount,
+      endsPerSeries: s.endsPerSeries,
+      arrowsPerEnd: s.arrowsPerEnd,
+      notes: 'n',
+    })
+    expect(store.getSession('s1')!.updatedAt).toBe(1)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it('an empty patch is a no-op', () => {
+    const store = setup()
+    const before = JSON.stringify(store.sessions)
+    store.updateSession('s1', {})
+    expect(JSON.stringify(store.sessions)).toBe(before)
+  })
+
+  it('never touches id, createdAt or closed', () => {
+    const store = setup({ createdAt: 5, closed: false })
+    store.updateSession('s1', {
+      ...DETAILS,
+      id: 'other',
+      createdAt: 99,
+      closed: true,
+    } as SessionPatch)
+    const s = store.getSession('s1')!
+    expect([s.id, s.createdAt, s.closed]).toEqual(['s1', 5, false])
+  })
+
+  it('a closed session is editable and stays closed; its arrows are kept', async () => {
+    const store = setup({ closed: true }, true)
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.updateSession('s1', { notes: 'Final', arrowsPerEnd: 6 })
+    const s = store.getSession('s1')!
+    expect([s.notes, s.closed, s.arrowsPerEnd, s.updatedAt]).toEqual(['Final', true, 3, 9000])
+    expect(s.archers[0]!.ends[0]).toEqual(['X', '9', null])
+    await nextTick()
+    expect(stored().sessions[0]).toMatchObject({ notes: 'Final', closed: true })
+  })
+
+  it('a missing session is a no-op', async () => {
+    const store = setup()
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    const before = JSON.stringify(store.sessions)
+    expect(() => store.updateSession('nope', DETAILS)).not.toThrow()
+    expect(JSON.stringify(store.sessions)).toBe(before)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it.each([
+    ['zero', { seriesCount: 0 }],
+    ['non-integer', { endsPerSeries: 1.5 }],
+    ['negative', { arrowsPerEnd: -3 }],
+    ['NaN', { arrowsPerEnd: Number.NaN }],
+  ])('ignores the whole structure part when one value is %s', (_, patch) => {
+    const store = setup()
+    const before = JSON.stringify(store.sessions)
+    store.updateSession('s1', { seriesCount: 3, ...patch })
+    expect(JSON.stringify(store.sessions)).toBe(before)
+  })
+
+  it('ignores an unknown face, a negative or non-finite distance, and non-string fields', () => {
+    const store = setup()
+    const before = JSON.stringify(store.sessions)
+    store.updateSession('s1', { faceId: 'missing-face' })
+    store.updateSession('s1', { distance: -1 })
+    store.updateSession('s1', { distance: Number.POSITIVE_INFINITY })
+    store.updateSession('s1', {
+      date: 5,
+      location: null,
+      notes: 7,
+    } as unknown as SessionPatch)
+    expect(JSON.stringify(store.sessions)).toBe(before)
+  })
+
+  it('the updated session reloads intact from storage (still a valid persisted session)', async () => {
+    const store = setup()
+    store.updateSession('s1', { ...DETAILS, faceId: '3d', seriesCount: 1, arrowsPerEnd: 2 })
+    await nextTick()
+    setActivePinia(createPinia())
+    const reloaded = useSessionsStore().getSession('s1')!
+    expect(reloaded).toMatchObject({ faceId: '3d', seriesCount: 1, arrowsPerEnd: 2 })
+    expect(reloaded.archers[0]!.ends).toHaveLength(10)
+    expect(reloaded.archers[0]!.ends[0]).toEqual([null, null])
   })
 })

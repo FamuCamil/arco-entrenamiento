@@ -22,3 +22,4 @@ Statuses:
 | 10 | [use-cases/10-cerrar-reabrir-sesion.md](use-cases/10-cerrar-reabrir-sesion.md) | CU-10 Cerrar / reabrir sesión | done | 2026-10-17 |
 | 11 | [use-cases/11-copia-seguridad.md](use-cases/11-copia-seguridad.md) | CU-15 Copia de seguridad (exportar / importar JSON) | done | 2026-10-17 |
 | 12 | [use-cases/12-resumen-sesion.md](use-cases/12-resumen-sesion.md) | CU-08 Resumen de la sesión | done | 2026-10-17 |
+| 13 | [use-cases/13-editar-sesion.md](use-cases/13-editar-sesion.md) | CU-11 Editar sesión | done | 2026-10-17 |

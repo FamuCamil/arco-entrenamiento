@@ -41,6 +41,7 @@ async function view(id = 's1', archerId?: string) {
         component: { template: '<div />' },
       },
       { path: '/session/:id/summary', name: 'summary', component: { template: '<div />' } },
+      { path: '/session/:id/edit', name: 'edit-session', component: { template: '<div />' } },
     ],
   })
   await router.push({
@@ -310,6 +311,49 @@ describe('SummaryView archer selection and navigation', () => {
     expect(w.find('textarea').exists()).toBe(false)
     await flushPromises()
     expect(localStorage.getItem(STORAGE_KEY)).toBe(before)
+  })
+})
+
+describe('SummaryView edit link and notes (CU-11)', () => {
+  it.each([false, true])(
+    '«Editar datos» links to the edit screen (closed = %s)',
+    async (closed) => {
+      seedScored({ closed })
+      const w = await view()
+      const edit = w.get('[data-testid="summary-edit"]')
+      expect(edit.element.tagName).toBe('A')
+      expect(edit.text()).toBe('Editar datos')
+      expect(edit.attributes('href')).toBe('/session/s1/edit')
+      expect(edit.classes()).toContain('nav-link')
+      expect(edit.element.parentElement).toBe(w.get('nav').element)
+    },
+  )
+
+  it('non-blank notes show in a «Notas» block, trimmed, with line breaks kept', async () => {
+    seed(makeSession({ notes: '  Viento fuerte\nSegunda línea  ' }))
+    const w = await view()
+    const notes = w.get('[data-testid="summary-notes"]')
+    expect(notes.element.textContent).toBe('Viento fuerte\nSegunda línea')
+    expect(notes.classes()).toContain('summary-notes')
+    const section = notes.element.closest('section[aria-labelledby]')!
+    const title = document.getElementById(section.getAttribute('aria-labelledby')!)!
+    expect(title.tagName).toBe('H3')
+    expect(title.textContent).toBe('Notas')
+  })
+
+  it.each(['', '   ', '\n\t '])('no notes block for blank notes %j', async (notes) => {
+    seed(makeSession({ notes }))
+    const w = await view()
+    expect(w.find('[data-testid="summary-notes"]').exists()).toBe(false)
+    expect(w.findAll('h3').map((h) => h.text())).toEqual(['Reparto por zonas'])
+  })
+
+  it('notes are plain text, never HTML', async () => {
+    seed(makeSession({ notes: '<b>negrita</b>' }))
+    const w = await view()
+    const notes = w.get('[data-testid="summary-notes"]')
+    expect(notes.text()).toBe('<b>negrita</b>')
+    expect(notes.find('b').exists()).toBe(false)
   })
 })
 
