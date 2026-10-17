@@ -2,7 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import SessionsView from '@/views/SessionsView.vue'
 
 // Hash history: works on static hosting (GitHub Pages) without redirect rules.
-// Remaining routes (/new, /session/:id, /session/:id/summary, ...) are added by their use cases.
+// Remaining routes (/session/:id, /session/:id/summary, ...) are added by their use cases.
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -10,6 +10,11 @@ const router = createRouter({
       path: '/',
       name: 'sessions',
       component: SessionsView,
+    },
+    {
+      path: '/new',
+      name: 'new-session',
+      component: () => import('@/views/NewSessionView.vue'),
     },
     {
       path: '/session/:id/score/:archerId',

@@ -50,6 +50,23 @@ const series = computed(() => {
 
 const arrowsPerEnd = computed(() => props.ends[0]?.length ?? 0)
 
+// More than 6 arrows don't fit one line at 375 px: each end is drawn on two lines (4–6 cells
+// each, the first line holding the extra one). Up to 6 arrows the DOM is the single-line one.
+const wrapped = computed(() => arrowsPerEnd.value > 6)
+const lineLength = computed(() =>
+  wrapped.value ? Math.ceil(arrowsPerEnd.value / 2) : arrowsPerEnd.value,
+)
+/** Second-line arrow indexes (0-based); empty when not wrapped. */
+const secondLine = computed(() =>
+  Array.from({ length: arrowsPerEnd.value - lineLength.value }, (_, i) => lineLength.value + i),
+)
+/** The second line is one cell short when the arrow count is odd. */
+const hasFiller = computed(() => wrapped.value && arrowsPerEnd.value % 2 === 1)
+
+function cellAt(row: number, col: number): string | null {
+  return props.ends[row]?.[col] ?? null
+}
+
 /** Blank for an unstarted end. */
 function shown(value: number | null | undefined, max?: number): string {
   if (value === null || value === undefined) return ''
@@ -72,7 +89,7 @@ function onActiveRow(el: Element | ComponentPublicInstance | null) {
 
 <template>
   <div class="score-grid">
-    <table v-for="(rows, s) in series" :key="s" class="series">
+    <table v-for="(rows, s) in series" :key="s" class="series" :class="{ 'is-wrapped': wrapped }">
       <caption class="series-title">
         {{
           `Serie ${s + 1}`
@@ -80,11 +97,11 @@ function onActiveRow(el: Element | ComponentPublicInstance | null) {
       </caption>
       <colgroup>
         <col class="col-end" />
-        <col v-for="col in arrowsPerEnd" :key="col" />
+        <col v-for="col in lineLength" :key="col" />
         <col class="col-total" />
         <col class="col-running" />
       </colgroup>
-      <thead>
+      <thead v-if="!wrapped">
         <tr>
           <th scope="col"><abbr title="Tanda">T.</abbr></th>
           <th v-for="col in arrowsPerEnd" :key="col" scope="col">{{ col }}</th>
@@ -92,7 +109,19 @@ function onActiveRow(el: Element | ComponentPublicInstance | null) {
           <th scope="col" class="total-head"><abbr title="Acumulado">Acum.</abbr></th>
         </tr>
       </thead>
-      <tbody>
+      <thead v-else>
+        <tr>
+          <th scope="col" rowspan="2"><abbr title="Tanda">T.</abbr></th>
+          <th v-for="col in lineLength" :key="col" scope="col">{{ col }}</th>
+          <th scope="col" rowspan="2" class="total-head">Total</th>
+          <th scope="col" rowspan="2" class="total-head"><abbr title="Acumulado">Acum.</abbr></th>
+        </tr>
+        <tr>
+          <th v-for="col in secondLine" :key="col" scope="col">{{ col + 1 }}</th>
+          <th v-if="hasFiller" aria-hidden="true"></th>
+        </tr>
+      </thead>
+      <tbody v-if="!wrapped">
         <tr
           v-for="row in rows"
           :key="row"
@@ -118,9 +147,52 @@ function onActiveRow(el: Element | ComponentPublicInstance | null) {
           </td>
         </tr>
       </tbody>
+      <template v-else>
+        <!-- One tbody per end: its two lines scroll into view together. -->
+        <tbody
+          v-for="row in rows"
+          :key="row"
+          :ref="row === selected.row ? onActiveRow : undefined"
+          class="end"
+          :data-testid="`score-row-${row}`"
+        >
+          <tr>
+            <th scope="row" rowspan="2">{{ (row % endsPerSeries) + 1 }}</th>
+            <ScoreCell
+              v-for="col in lineLength"
+              :key="col - 1"
+              :value="cellAt(row, col - 1)"
+              :selected="row === selected.row && col - 1 === selected.col"
+              :label="cellLabel(row, col - 1, cellAt(row, col - 1))"
+              :interactive="interactive"
+              :data-testid="`score-cell-${row}-${col - 1}`"
+              @select="emit('select', row, col - 1)"
+            />
+            <td class="total" rowspan="2" :data-testid="`end-total-${row}`">
+              {{ shown(endTotals[row], endMax) }}
+            </td>
+            <td class="total" rowspan="2" :data-testid="`running-total-${row}`">
+              {{ shown(runningTotals[row]) }}
+            </td>
+          </tr>
+          <tr>
+            <ScoreCell
+              v-for="col in secondLine"
+              :key="col"
+              :value="cellAt(row, col)"
+              :selected="row === selected.row && col === selected.col"
+              :label="cellLabel(row, col, cellAt(row, col))"
+              :interactive="interactive"
+              :data-testid="`score-cell-${row}-${col}`"
+              @select="emit('select', row, col)"
+            />
+            <td v-if="hasFiller" class="filler" aria-hidden="true"></td>
+          </tr>
+        </tbody>
+      </template>
       <tfoot>
         <tr>
-          <td :colspan="arrowsPerEnd + 3" class="series-total" :data-testid="`series-total-${s}`">
+          <td :colspan="lineLength + 3" class="series-total" :data-testid="`series-total-${s}`">
             {{ `Total Serie ${s + 1}: ${seriesTotals[s] ?? 0}/${seriesMax}` }}
           </td>
         </tr>
@@ -133,7 +205,10 @@ function onActiveRow(el: Element | ComponentPublicInstance | null) {
 </template>
 
 <style scoped>
-/* Fixed layout: 6 arrows + totals fit 343 px (375 px minus the gutters), so cells shrink in width. */
+/*
+ * Fixed layout: 6 arrows + totals fit 343 px (375 px minus the gutters), so cells shrink in width.
+ * More than 6 arrows wrap onto two lines of at most 6 cells (.is-wrapped), keeping that budget.
+ */
 .series {
   width: 100%;
   table-layout: fixed;
@@ -173,6 +248,19 @@ abbr {
 
 .col-running {
   width: 2.875rem;
+}
+
+.is-wrapped .col-total {
+  /* «132/132» (3D, 12 × 11) on wide fallback fonts; arrow columns keep ~34 px at 375 px. */
+  width: 4rem;
+}
+
+.is-wrapped .end {
+  border-top: 2px solid var(--color-text-muted);
+}
+
+.filler {
+  border: 1px solid var(--color-border);
 }
 
 .total-head {

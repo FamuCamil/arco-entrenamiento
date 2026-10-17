@@ -112,7 +112,7 @@ test.describe('CU-14 instalar en el móvil', () => {
   test.beforeEach(async ({ page }) => {
     problems = trackConsole(page)
     await page.goto('./')
-    await expect(page.getByRole('button', { name: 'Sesión de prueba' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Nueva sesión' })).toBeVisible()
   })
 
   test.afterEach(() => {

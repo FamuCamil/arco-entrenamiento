@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { usePersistence } from '@/composables/usePersistence'
 import { createId } from '@/domain/ids'
@@ -31,6 +31,13 @@ export const useSessionsStore = defineStore('sessions', () => {
 
   const sessions = ref<Session[]>(initial.sessions)
   const profileName = ref(initial.profileName)
+
+  /** Newest first: date descending, then createdAt descending. Never reorders `sessions`. */
+  const sortedSessions = computed(() =>
+    [...sessions.value].sort((a, b) =>
+      a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1,
+    ),
+  )
 
   function getSession(id: string): Session | undefined {
     return sessions.value.find((s) => s.id === id)
@@ -114,5 +121,14 @@ export const useSessionsStore = defineStore('sessions', () => {
     { deep: true },
   )
 
-  return { sessions, profileName, getSession, getArcher, createSession, setArrow, deleteEnd }
+  return {
+    sessions,
+    profileName,
+    sortedSessions,
+    getSession,
+    getArcher,
+    createSession,
+    setArrow,
+    deleteEnd,
+  }
 })

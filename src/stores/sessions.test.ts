@@ -424,3 +424,59 @@ describe('persistence watch', () => {
     expect(store.sessions).toHaveLength(1)
   })
 })
+
+describe('sortedSessions', () => {
+  function seedSessions() {
+    const sessions = [
+      makeSession({ id: 'old', date: '2026-01-10', createdAt: 5 }),
+      makeSession({ id: 'new-early', date: '2026-10-15', createdAt: 1 }),
+      makeSession({ id: 'mid', date: '2026-05-01', createdAt: 9 }),
+      makeSession({ id: 'new-late', date: '2026-10-15', createdAt: 3 }),
+    ]
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState(sessions)))
+    return useSessionsStore()
+  }
+
+  it('is empty with no sessions', () => {
+    expect(useSessionsStore().sortedSessions).toEqual([])
+  })
+
+  it('orders by date descending, then createdAt descending on equal dates', () => {
+    const store = seedSessions()
+    expect(store.sortedSessions.map((s) => s.id)).toEqual(['new-late', 'new-early', 'mid', 'old'])
+  })
+
+  it('compares dates across years', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(
+        makeState([
+          makeSession({ id: 'a', date: '2025-12-31' }),
+          makeSession({ id: 'b', date: '2026-01-01' }),
+        ]),
+      ),
+    )
+    expect(useSessionsStore().sortedSessions.map((s) => s.id)).toEqual(['b', 'a'])
+  })
+
+  it('does not reorder the underlying sessions array', () => {
+    const store = seedSessions()
+    void store.sortedSessions
+    expect(store.sessions.map((s) => s.id)).toEqual(['old', 'new-early', 'mid', 'new-late'])
+  })
+
+  it('reacts to createSession', () => {
+    const store = seedSessions()
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const created = store.createSession({ ...INPUT, date: '2026-10-15' })
+    expect(store.sortedSessions[0]!.id).toBe(created.id)
+    const older = store.createSession({ ...INPUT, date: '2020-01-01' })
+    expect(store.sortedSessions.at(-1)!.id).toBe(older.id)
+  })
+
+  it('holds the same reactive sessions, not copies', () => {
+    const store = seedSessions()
+    expect(store.sortedSessions[0]).toBe(store.getSession('new-late'))
+  })
+})

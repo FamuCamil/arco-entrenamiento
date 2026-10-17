@@ -26,9 +26,12 @@ async function expectSelected(page: Page, row: number, col: number) {
   await expect(cell(page, row, col)).toHaveAttribute('aria-current', 'true')
 }
 
-async function openTestSession(page: Page) {
+/** Creates the default «Sala 18 m» session (WA 40, 2×10×3) through «Nueva sesión» → «Crear». */
+async function createDefaultSession(page: Page) {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Sesión de prueba' }).click()
+  await page.getByRole('button', { name: 'Nueva sesión' }).click()
+  await expect(page).toHaveURL(/#\/new$/)
+  await page.getByRole('button', { name: 'Crear' }).click()
   await expect(page).toHaveURL(/#\/session\/[^/]+\/score\/[^/]+$/)
 }
 
@@ -90,7 +93,7 @@ async function seed(
 
 test('scores a full end, advances the selection and keeps it after reload', async ({ page }) => {
   const problems = trackConsole(page)
-  await openTestSession(page)
+  await createDefaultSession(page)
 
   await expect(page.getByRole('heading', { name: 'A - Yo' })).toBeVisible()
   const tables = page.locator('table')
@@ -129,12 +132,14 @@ test('scores a full end, advances the selection and keeps it after reload', asyn
   expect(problems).toEqual([])
 })
 
-test('a second «Sesión de prueba» click reopens the same session', async ({ page }) => {
-  await openTestSession(page)
+test('reopening from the home list returns to the same session', async ({ page }) => {
+  await createDefaultSession(page)
   const first = page.url()
   await page.getByRole('button', { name: 'Anotar 10', exact: true }).click()
   await page.goto('./')
-  await page.getByRole('button', { name: 'Sesión de prueba' }).click()
+  const list = page.getByRole('list', { name: 'Sesiones guardadas' })
+  await expect(list.getByRole('link')).toHaveCount(1)
+  await list.getByRole('link').click()
   await expect(page).toHaveURL(first)
   await expect(cell(page, 0, 0)).toHaveText('10')
   const count = await page.evaluate(
@@ -147,7 +152,7 @@ test('a second «Sesión de prueba» click reopens the same session', async ({ p
 test('fits 375 px: no horizontal scroll, keypad fully visible with ≥48 px keys', async ({
   page,
 }) => {
-  await openTestSession(page)
+  await createDefaultSession(page)
   expect(page.viewportSize()?.width).toBe(375)
 
   const overflow = await page.evaluate(() => ({
@@ -184,7 +189,7 @@ test('fits 375 px: no horizontal scroll, keypad fully visible with ≥48 px keys
 })
 
 test('keys take their colors from the catalog', async ({ page }) => {
-  await openTestSession(page)
+  await createDefaultSession(page)
   const bg = (key: string) =>
     page.getByTestId(`key-${key}`).evaluate((el) => getComputedStyle(el).backgroundColor)
   expect(await bg('X')).toBe('rgb(250, 204, 21)')
@@ -232,7 +237,7 @@ test('a closed session shows the lock and no keypad', async ({ page }) => {
 
 test('corrects an arrow by tapping it; the correction survives a reload', async ({ page }) => {
   const problems = trackConsole(page)
-  await openTestSession(page)
+  await createDefaultSession(page)
   for (const name of ['Anotar X', 'Anotar 9', 'Anotar fallo'])
     await page.getByRole('button', { name, exact: true }).click()
   await expectSelected(page, 1, 0)
@@ -259,7 +264,7 @@ test('sorts a completed end, re-sorts it on a correction and keeps it after relo
 }) => {
   const problems = trackConsole(page)
   expect(page.viewportSize()?.width).toBe(375)
-  await openTestSession(page)
+  await createDefaultSession(page)
   const row0 = page.getByTestId('score-row-0').locator('td.score-cell')
 
   // An incomplete end stays where the arrows were put.
@@ -365,7 +370,7 @@ test('with a gap left by out-of-order scoring, the first gap is selected on load
 })
 
 test('scoring out of order: tap a later empty cell, write, and the gap stays', async ({ page }) => {
-  await openTestSession(page)
+  await createDefaultSession(page)
   await cell(page, 2, 0).click()
   await expectSelected(page, 2, 0)
   await page.getByRole('button', { name: 'Anotar 10', exact: true }).click()
@@ -386,7 +391,7 @@ for (const [name, path] of [
     await page.goto(`./${path}`)
     await expect(page.getByText('No se encontró la sesión.')).toBeVisible()
     await page.getByRole('link', { name: 'Volver al inicio' }).click()
-    await expect(page.getByRole('button', { name: 'Sesión de prueba' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Nueva sesión' })).toBeVisible()
     expect(problems).toEqual([])
   })
 }
@@ -395,7 +400,7 @@ test('corrupt storage: the app starts empty without breaking', async ({ page }) 
   const problems = trackConsole(page)
   await page.addInitScript((key) => localStorage.setItem(key, '{corrupt'), STORAGE_KEY)
   await page.goto('./')
-  await expect(page.getByRole('button', { name: 'Sesión de prueba' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Nueva sesión' })).toBeVisible()
   expect(await page.evaluate((key) => localStorage.getItem(`${key}:corrupt`), STORAGE_KEY)).toBe(
     '{corrupt',
   )
@@ -606,7 +611,7 @@ test('live totals at 375 px: rows, running totals, series, grand total and avera
   page,
 }) => {
   const problems = trackConsole(page)
-  await openTestSession(page)
+  await createDefaultSession(page)
   expect(page.viewportSize()?.width).toBe(375)
   const text = (id: string) => page.getByTestId(id)
   const press = async (...names: string[]) => {
@@ -797,4 +802,72 @@ test('WA 40 2×10×3 with full ends («30/30», «300») fits 375 px too', async
   await expect(page.getByTestId('series-total-1')).toHaveText('Total Serie 2: 300/300')
   await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 600/600')
   await expectGridFits(page)
+})
+
+test('3D 1×2×12 with full ends («132/132», «264») fits 375 px on two lines per end', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  const ends = Array.from({ length: 2 }, () => Array.from({ length: 12 }, () => '11'))
+  const url = await seed(page, {
+    faceId: '3d',
+    seriesCount: 1,
+    endsPerSeries: 2,
+    arrowsPerEnd: 12,
+    ends,
+  })
+  await page.goto(`./${url}`)
+  expect(page.viewportSize()?.width).toBe(375)
+  const head = page.locator('thead').first().locator('tr')
+  await expect(head.nth(0).locator('th')).toHaveText([
+    'T.',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    'Total',
+    'Acum.',
+  ])
+  await expect(head.nth(1).locator('th')).toHaveText(['7', '8', '9', '10', '11', '12'])
+  await expect(page.locator('tbody[data-testid^="score-row-"]')).toHaveCount(2)
+  await expect(page.getByTestId('end-total-0')).toHaveText('132/132')
+  await expect(page.getByTestId('end-total-1')).toHaveText('132/132')
+  await expect(page.getByTestId('running-total-1')).toHaveText('264')
+  await expect(page.getByTestId('series-total-0')).toHaveText('Total Serie 1: 264/264')
+  await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 264/264')
+  await expectGridFits(page)
+  expect(problems).toEqual([])
+})
+
+test('12 arrows: scoring 6 arrows moves the selection to the second line of the end', async ({
+  page,
+}) => {
+  const problems = trackConsole(page)
+  const ends = [Array.from({ length: 12 }, () => '11'), Array.from({ length: 12 }, () => null)]
+  const url = await seed(page, {
+    faceId: '3d',
+    seriesCount: 1,
+    endsPerSeries: 2,
+    arrowsPerEnd: 12,
+    ends,
+  })
+  await page.goto(`./${url}`)
+  await expectSelected(page, 1, 0)
+  for (let i = 0; i < 6; i++)
+    await page.getByRole('button', { name: 'Anotar 10', exact: true }).click()
+  await expectSelected(page, 1, 6)
+  // The selected cell sits on the end's second line, below its first arrow.
+  const first = await cell(page, 1, 0).boundingBox()
+  const seventh = await cell(page, 1, 6).boundingBox()
+  expect(seventh!.y).toBeGreaterThan(first!.y + first!.height - 1)
+  expect(Math.abs(seventh!.x - first!.x)).toBeLessThan(1)
+  await expect(page.getByTestId('end-total-1')).toHaveText('60/132')
+  for (let i = 0; i < 6; i++)
+    await page.getByRole('button', { name: 'Anotar 11', exact: true }).click()
+  await expect(page.getByTestId('end-total-1')).toHaveText('126/132')
+  await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 258/264')
+  await expectGridFits(page)
+  expect(problems).toEqual([])
 })

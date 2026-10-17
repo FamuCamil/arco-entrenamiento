@@ -119,7 +119,7 @@ test.describe('CU-13 funcionar sin conexión', () => {
 
     // 1. First visit online: wait until the service worker controls the page.
     await page.goto('./')
-    await expect(page.getByRole('button', { name: 'Sesión de prueba' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Nueva sesión' })).toBeVisible()
     await waitForController(page)
 
     // 2. Every cached URL is same-origin, and the precache holds the shell.
@@ -135,8 +135,10 @@ test.describe('CU-13 funcionar sin conexión', () => {
     for (const file of ['index.html', ...assets])
       expect(cachedPaths, `${file} must be in the cache`).toContain(`/arco-entrenamiento/${file}`)
 
-    // 3. Score one end online.
-    await page.getByRole('button', { name: 'Sesión de prueba' }).click()
+    // 3. Create the default session and score one end online.
+    await page.getByRole('button', { name: 'Nueva sesión' }).click()
+    await expect(page.getByRole('heading', { name: 'Nueva sesión' })).toBeVisible()
+    await page.getByRole('button', { name: 'Crear' }).click()
     await expect(page).toHaveURL(/#\/session\/[^/]+\/score\/[^/]+$/)
     const scoringUrl = page.url()
     await score(page, 'X')
@@ -188,7 +190,12 @@ test.describe('CU-13 funcionar sin conexión', () => {
 
     // 8. A navigation URL that is not in the precache is answered by the fallback (AC2).
     await reopened.goto('./?offline-fallback=1#/')
-    await expect(reopened.getByRole('button', { name: 'Sesión de prueba' })).toBeVisible()
+    await expect(reopened.getByRole('button', { name: 'Nueva sesión' })).toBeVisible()
+
+    // 8b. The lazy new-session screen is served from the precache in a fresh offline page.
+    await reopened.getByRole('button', { name: 'Nueva sesión' }).click()
+    await expect(reopened.getByRole('heading', { name: 'Nueva sesión' })).toBeVisible()
+    await expect(reopened.getByRole('button', { name: 'Crear' })).toBeEnabled()
 
     // 9. Silent by user decision: no offline-ready or updated notice anywhere.
     await expect(reopened.locator('[role="alert"]')).toHaveCount(0)
@@ -215,7 +222,9 @@ test.describe('CU-13 funcionar sin conexión', () => {
 
     await page.goto('./')
     expect(await page.evaluate(() => 'serviceWorker' in navigator)).toBe(false)
-    await page.getByRole('button', { name: 'Sesión de prueba' }).click()
+    await page.getByRole('button', { name: 'Nueva sesión' }).click()
+    await expect(page.getByRole('heading', { name: 'Nueva sesión' })).toBeVisible()
+    await page.getByRole('button', { name: 'Crear' }).click()
     await expect(page).toHaveURL(/#\/session\/[^/]+\/score\/[^/]+$/)
     await score(page, 'X')
     await expect(cell(page, 0, 0)).toHaveText('X')

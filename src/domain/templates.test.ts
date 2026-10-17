@@ -50,7 +50,7 @@ describe('SESSION_TEMPLATES', () => {
 })
 
 describe('getTemplate', () => {
-  it('returns the test-session template (Sala 18 m: WA 40, 2x10x3)', () => {
+  it('returns a template by id (Sala 18 m: WA 40, 2x10x3)', () => {
     expect(getTemplate('sala-18')).toEqual({
       id: 'sala-18',
       label: 'Sala 18 m',
