@@ -31,7 +31,18 @@ describe('useConfirm', () => {
       message: 'No se puede deshacer.',
       confirmLabel: 'Aceptar',
       cancelLabel: 'Cancelar',
+      danger: true,
     })
+  })
+
+  it('danger defaults to true and danger: false passes through (CU-10)', () => {
+    const { confirm, state } = useConfirm()
+    void confirm({ ...OPTIONS, danger: false })
+    expect(state.value?.danger).toBe(false)
+    void confirm({ ...OPTIONS, danger: true })
+    expect(state.value?.danger).toBe(true)
+    void confirm(OPTIONS)
+    expect(state.value?.danger).toBe(true)
   })
 
   it('uses the given confirm and cancel labels', () => {

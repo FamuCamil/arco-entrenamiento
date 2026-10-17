@@ -211,7 +211,8 @@ async function seedWorstCase(page: Page) {
     version: 1,
     profileName: '',
     sessions: [
-      session('worst', 3, {}, worstEnds),
+      // Finalized (CU-10): the «Finalizada» line must fit on the worst card too.
+      session('worst', 3, { closed: true }, worstEnds),
       session(
         'reduced',
         2,
@@ -263,6 +264,14 @@ test('seeded worst case «1234/1440» with long places fits 375 px in light and 
     await expect(reduced.locator('.card-total')).toHaveText('Total 72000/72000')
     await expect(reduced.getByTestId('card-structure')).toHaveText('20×30×12')
     await expect(spaced.getByTestId('card-distance-face')).toHaveText('Variable · 3D')
+    // CU-10: only the finalized card shows the indicator, and its name says so.
+    await expect(worst.getByTestId('card-status')).toHaveText('Finalizada')
+    await expect(worst.locator('svg.card-status-icon')).toHaveAttribute('aria-hidden', 'true')
+    await expect(worst).toHaveAccessibleName(/, Promedio 9\.95, finalizada$/)
+    for (const open of [reduced, spaced]) {
+      await expect(open.getByTestId('card-status')).toHaveCount(0)
+      await expect(open).not.toHaveAccessibleName(/finalizada/)
+    }
 
     const fit = await expectFit(page, scheme)
     expect(fit.cards.map((c) => c.placeTruncated)).toEqual([true, true, true])
@@ -284,5 +293,9 @@ test('seeded worst case «1234/1440» with long places fits 375 px in light and 
   await expect(page).toHaveURL(/#\/session\/worst\/score\/worst-archer$/)
   await expect(page.getByTestId('grand-total')).toHaveText('TOTAL GENERAL: 1234/1440')
   await expect(page.getByTestId('average')).toHaveText('Promedio: 9.95')
+  // A finalized card opens the scoring screen read-only.
+  await expect(page.getByRole('status')).toHaveText('Sesión finalizada — solo lectura')
+  await expect(page.getByRole('group', { name: 'Teclado de puntuación' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reabrir sesión' })).toBeVisible()
   expect(problems).toEqual([])
 })

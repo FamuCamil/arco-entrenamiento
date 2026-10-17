@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import LockIcon from '@/components/LockIcon.vue'
 import TargetIcon from '@/components/TargetIcon.vue'
 import { useSessionStats } from '@/composables/useSessionStats'
 import { formatDisplayDate } from '@/domain/dates'
@@ -33,6 +34,7 @@ const totalLabel = computed(() => `Total ${stats.grandTotal.value}/${stats.grand
 const averageLabel = computed(() =>
   stats.average.value === null ? 'Promedio —' : `Promedio ${stats.average.value.toFixed(2)}`,
 )
+const isClosed = computed(() => props.session.closed)
 const accessibleName = computed(() =>
   [
     dateLabel.value,
@@ -42,6 +44,7 @@ const accessibleName = computed(() =>
     structure.value,
     totalLabel.value,
     averageLabel.value,
+    ...(isClosed.value ? ['finalizada'] : []),
   ].join(', '),
 )
 </script>
@@ -67,6 +70,10 @@ const accessibleName = computed(() =>
       <span class="card-line card-meta card-totals" data-testid="card-totals">
         <span class="card-total">{{ totalLabel }}</span>
         <span class="card-average">{{ averageLabel }}</span>
+      </span>
+      <span v-if="isClosed" class="card-line card-meta card-status" data-testid="card-status">
+        <LockIcon class="card-status-icon" />
+        <span>Finalizada</span>
       </span>
     </span>
   </RouterLink>
@@ -163,5 +170,19 @@ const accessibleName = computed(() =>
   right: 100%;
   width: 1.2em;
   text-align: center;
+}
+
+/* Informative only (CU-10): to reopen, open the session. */
+.card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.card-status-icon {
+  flex: none;
+  width: 1em;
+  height: 1em;
 }
 </style>

@@ -5,7 +5,10 @@ defineProps<{
   selected: boolean
   /** Accessible name of the cell button (series, end, arrow and value). */
   label: string
-  /** False in a closed session: the value is plain text and nothing can be selected. */
+  /**
+   * False in a closed session: the value is plain text, nothing can be selected and no cell shows
+   * as selected (CU-10).
+   */
   interactive: boolean
 }>()
 
@@ -15,8 +18,8 @@ const emit = defineEmits<{ select: [] }>()
 <template>
   <td
     class="score-cell"
-    :class="{ 'is-selected': selected, 'is-interactive': interactive }"
-    :aria-current="selected || undefined"
+    :class="{ 'is-selected': selected && interactive, 'is-interactive': interactive }"
+    :aria-current="(selected && interactive) || undefined"
   >
     <button
       v-if="interactive"

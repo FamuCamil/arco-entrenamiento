@@ -130,7 +130,10 @@ describe('ScoringView', () => {
     const w = await view()
     expect(w.get('[role="status"]').text()).toBe('Sesión finalizada — solo lectura')
     expect(w.find('[role="group"]').exists()).toBe(false)
-    expect(w.findAll('button')).toHaveLength(0)
+    // The only control left is «Reabrir sesión» (CU-10), outside the status.
+    expect(w.findAll('button').map((b) => b.text())).toEqual(['Reabrir sesión'])
+    expect(w.get('[role="status"]').find('button').exists()).toBe(false)
+    expect(w.find('[data-testid="close-session"]').exists()).toBe(false)
     expect(w.findAll('table')).toHaveLength(2)
   })
 
@@ -181,16 +184,17 @@ describe('ScoringView', () => {
     expect(ends[2]).toEqual([null, null, '10'])
   })
 
-  it('a closed session: no cell buttons, clicking a cell changes nothing', async () => {
+  it('a closed session: no cell buttons, no selected cell, clicking a cell changes nothing', async () => {
     const s = makeSession({ closed: true })
     s.archers[0]!.ends[0] = ['X', '9', null]
     seed(s)
     const w = await view()
-    const before = w.get('[aria-current="true"]').attributes('data-testid')
-    expect(before).toBe('score-cell-0-2')
+    // AC4 (CU-10): a closed session shows no selected cell.
+    expect(w.find('[aria-current]').exists()).toBe(false)
+    expect(w.find('.is-selected').exists()).toBe(false)
     expect(w.findAll('table button')).toHaveLength(0)
     await w.get('[data-testid="score-cell-0-0"]').trigger('click')
-    expect(w.get('[aria-current="true"]').attributes('data-testid')).toBe(before)
+    expect(w.find('[aria-current]').exists()).toBe(false)
     expect(w.get('[data-testid="score-cell-0-0"]').text()).toBe('X')
     expect(useSessionsStore().getArcher('s1', 'a1')!.ends[0]).toEqual(['X', '9', null])
   })
@@ -459,7 +463,8 @@ describe('ScoringView live totals (CU-07)', () => {
     s.archers[0]!.ends[12] = ['7', null, null]
     seed(s)
     const w = await view()
-    expect(w.findAll('button')).toHaveLength(0)
+    expect(w.findAll('table button')).toHaveLength(0)
+    expect(w.findAll('button').map((b) => b.text())).toEqual(['Reabrir sesión'])
     expect(text(w, 'end-total-0')).toBe('27/30')
     expect(text(w, 'end-total-12')).toBe('7/30')
     expect(text(w, 'running-total-12')).toBe('7')
@@ -489,5 +494,175 @@ describe('ScoringView live totals (CU-07)', () => {
     expect(text(w, 'end-total-0')).toBe('16/22')
     expect(text(w, 'series-total-0')).toBe('Total Serie 1: 16/44')
     expect(text(w, 'average')).toBe('Promedio: 8.00')
+  })
+})
+
+describe('ScoringView finalize / reopen (CU-10)', () => {
+  const closed = () => useSessionsStore().getSession('s1')!.closed
+
+  async function openFinalizeDialog(w: Awaited<ReturnType<typeof viewWithDialog>>) {
+    await w.get('[data-testid="close-session"]').trigger('click')
+    await flushPromises()
+    return w.get('[role="dialog"]')
+  }
+
+  it('«Finalizar sesión» sits below the keypad and the delete actions, outside their group', async () => {
+    seedPartial()
+    const w = await view()
+    const finalize = w.get('[data-testid="close-session"]')
+    expect(finalize.element.tagName).toBe('BUTTON')
+    expect(finalize.attributes('type')).toBe('button')
+    expect(finalize.text()).toBe('Finalizar sesión')
+    const group = w.get('[role="group"][aria-label="Acciones de borrado"]')
+    expect(group.element.contains(finalize.element)).toBe(false)
+    expect(w.get('.controls').element.contains(finalize.element)).toBe(true)
+    const keypad = w.get('[aria-label="Teclado de puntuación"]').element
+    for (const before of [keypad, group.element])
+      expect(
+        before.compareDocumentPosition(finalize.element) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    // Its own style, not a delete action.
+    expect(finalize.classes()).toContain('close-session')
+    expect(finalize.classes()).not.toContain('danger')
+  })
+
+  it('opens the app dialog with the exact texts, a non-danger confirm and never window.confirm', async () => {
+    seedPartial()
+    const nativeConfirm = vi.spyOn(window, 'confirm')
+    const w = await viewWithDialog()
+    const dialog = await openFinalizeDialog(w)
+    expect(dialog.get('h2').text()).toBe('¿Finalizar la sesión?')
+    expect(dialog.get('p').text()).toBe(
+      'La sesión quedará en solo lectura. Podrás reabrirla cuando quieras.',
+    )
+    expect(dialog.findAll('button').map((b) => b.text())).toEqual(['Cancelar', 'Finalizar'])
+    expect(w.get('[data-testid="confirm-accept"]').classes()).toContain('is-safe')
+    expect(useConfirm().state.value?.danger).toBe(false)
+    expect(nativeConfirm).not.toHaveBeenCalled()
+    expect(closed()).toBe(false)
+  })
+
+  it('Cancelar changes nothing and returns focus to «Finalizar sesión»', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    const before = selectedId(w)
+    await openFinalizeDialog(w)
+    await w.get('[data-testid="confirm-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(closed()).toBe(false)
+    expect(w.find('[aria-label="Teclado de puntuación"]').exists()).toBe(true)
+    expect(selectedId(w)).toBe(before)
+    // returnFocusTo: back on the button even though the tap did not focus it.
+    expect(document.activeElement).toBe(w.get('[data-testid="close-session"]').element)
+    await flushPromises()
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).sessions[0].closed).toBe(false)
+  })
+
+  it('Escape changes nothing and returns focus to «Finalizar sesión»', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await openFinalizeDialog(w)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(closed()).toBe(false)
+    expect(w.find('[aria-label="Teclado de puntuación"]').exists()).toBe(true)
+    expect(document.activeElement).toBe(w.get('[data-testid="close-session"]').element)
+  })
+
+  it('Finalizar locks the session: lock shown, controls gone, data kept, focus on «Reabrir sesión»', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await openFinalizeDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(closed()).toBe(true)
+    expect(w.get('[role="status"]').text()).toBe('Sesión finalizada — solo lectura')
+    expect(w.get('[role="status"] svg').attributes('aria-hidden')).toBe('true')
+    expect(w.find('[aria-label="Teclado de puntuación"]').exists()).toBe(false)
+    expect(w.find('[aria-label="Acciones de borrado"]').exists()).toBe(false)
+    expect(w.find('[data-testid="delete-arrow"]').exists()).toBe(false)
+    expect(w.find('[data-testid="delete-end"]').exists()).toBe(false)
+    expect(w.find('[data-testid="close-session"]').exists()).toBe(false)
+    // Table, totals and average stay visible; no cell is interactive or selected.
+    expect(w.findAll('table')).toHaveLength(2)
+    expect(w.findAll('table button')).toHaveLength(0)
+    expect(w.find('[aria-current]').exists()).toBe(false)
+    expect(w.get('[data-testid="end-total-0"]').text()).toBe('27/30')
+    expect(w.get('[data-testid="grand-total"]').text()).toBe('TOTAL GENERAL: 40/600')
+    expect(w.get('[data-testid="average"]').text()).toBe('Promedio: 8.00')
+    const reopen = w.get('[data-testid="reopen-session"]')
+    expect(reopen.text()).toBe('Reabrir sesión')
+    expect(w.get('[role="status"]').element.contains(reopen.element)).toBe(false)
+    expect(document.activeElement).toBe(reopen.element)
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(stored.sessions[0].closed).toBe(true)
+    expect(stored.sessions[0].archers[0].ends[1]).toEqual(['7', '6', null])
+  })
+
+  it('«Reabrir sesión» reopens at once, selects the first empty cell and focuses it', async () => {
+    const s = makeSession({ closed: true })
+    s.archers[0]!.ends[0] = ['X', '9', '8']
+    s.archers[0]!.ends[1] = ['7', null, null]
+    seed(s)
+    const w = await viewWithDialog()
+    await w.get('[data-testid="reopen-session"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(useConfirm().state.value).toBeNull()
+    expect(closed()).toBe(false)
+    expect(w.find('[role="status"]').exists()).toBe(false)
+    expect(w.find('[data-testid="reopen-session"]').exists()).toBe(false)
+    expect(w.find('[aria-label="Teclado de puntuación"]').exists()).toBe(true)
+    expect(w.find('[data-testid="delete-arrow"]').exists()).toBe(true)
+    expect(w.find('[data-testid="delete-end"]').exists()).toBe(true)
+    expect(w.find('[data-testid="close-session"]').exists()).toBe(true)
+    expect(selectedId(w)).toBe('score-cell-1-1')
+    expect(document.activeElement).toBe(w.get('[data-testid="score-cell-1-1"] button').element)
+    expect(document.activeElement).not.toBe(document.body)
+    await w.get('[data-testid="key-6"]').trigger('click')
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[1]).toEqual(['7', '6', null])
+    await flushPromises()
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).sessions[0].closed).toBe(false)
+  })
+
+  it('reopening a full session selects and focuses the last cell', async () => {
+    const s = makeSession({ closed: true })
+    s.archers[0]!.ends = s.archers[0]!.ends.map(() => ['X', 'X', 'X'])
+    seed(s)
+    const w = await viewWithDialog()
+    await w.get('[data-testid="reopen-session"]').trigger('click')
+    await flushPromises()
+    expect(selectedId(w)).toBe('score-cell-19-2')
+    expect(document.activeElement).toBe(w.get('[data-testid="score-cell-19-2"] button').element)
+  })
+
+  it('finalize then reopen round-trips: the selection moves to the first empty cell', async () => {
+    seedPartial()
+    const w = await viewWithDialog()
+    await w.get('[data-testid="score-cell-5-0"] button').trigger('click')
+    expect(selectedId(w)).toBe('score-cell-5-0')
+    await openFinalizeDialog(w)
+    await w.get('[data-testid="confirm-accept"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="reopen-session"]').trigger('click')
+    await flushPromises()
+    expect(closed()).toBe(false)
+    expect(selectedId(w)).toBe('score-cell-1-2')
+  })
+
+  it('scoring the last arrow does not finalize the session (AC6)', async () => {
+    const s = makeSession()
+    s.archers[0]!.ends = s.archers[0]!.ends.map(() => ['X', 'X', 'X'])
+    s.archers[0]!.ends[19] = ['X', 'X', null]
+    seed(s)
+    const w = await view()
+    await w.get('[data-testid="key-9"]').trigger('click')
+    expect(useSessionsStore().getArcher('s1', 'a1')!.ends[19]).toEqual(['X', 'X', '9'])
+    expect(closed()).toBe(false)
+    expect(w.find('[role="status"]').exists()).toBe(false)
+    expect(w.find('[data-testid="close-session"]').exists()).toBe(true)
   })
 })

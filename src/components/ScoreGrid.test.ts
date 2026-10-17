@@ -117,14 +117,25 @@ describe('ScoreGrid', () => {
     }
   })
 
-  it('not interactive (closed session): no buttons, values still shown', () => {
+  it('not interactive (closed session): no buttons, values shown, no cell selected', () => {
     const e = ends(2, 3)
     e[0] = ['X', null, 'M']
     const w = grid(e, { row: 0, col: 0 }, vi.fn(), 10, false)
     expect(w.findAll('button')).toHaveLength(0)
     expect(w.get('[data-testid="score-cell-0-0"]').text()).toBe('X')
     expect(w.get('[data-testid="score-cell-0-2"]').text()).toBe('M')
-    expect(w.findAll('[aria-current="true"]')).toHaveLength(1)
+    // CU-10 AC4: the selection is hidden while read-only.
+    expect(w.find('[aria-current]').exists()).toBe(false)
+    expect(w.find('.is-selected').exists()).toBe(false)
+    expect(w.find('.is-interactive').exists()).toBe(false)
+  })
+
+  it('interactive: the selected cell carries aria-current and is-selected', () => {
+    const w = grid(ends(2, 3), { row: 1, col: 2 })
+    const current = w.findAll('[aria-current="true"]')
+    expect(current).toHaveLength(1)
+    expect(current[0]!.attributes('data-testid')).toBe('score-cell-1-2')
+    expect(w.findAll('.is-selected')).toHaveLength(1)
   })
 
   it('clicking a cell emits select with the global row index and the arrow', async () => {

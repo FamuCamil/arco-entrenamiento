@@ -57,6 +57,17 @@ describe('ConfirmDialog', () => {
     expect(w.findAll('button').map((b) => b.text())).toEqual(['Cancelar', 'Aceptar'])
   })
 
+  it('paints the confirm button as danger by default, accent with danger: false (CU-10)', async () => {
+    const { w } = await open()
+    expect(w.get('[data-testid="confirm-accept"]').classes()).not.toContain('is-safe')
+    useConfirm().settle(false)
+    wrapper!.unmount()
+    const safe = await open({ ...OPTIONS, danger: false } as typeof OPTIONS)
+    const accept = safe.w.get('[data-testid="confirm-accept"]')
+    expect(accept.classes()).toEqual(expect.arrayContaining(['confirm', 'is-safe']))
+    expect(safe.w.get('[data-testid="confirm-cancel"]').classes()).not.toContain('is-safe')
+  })
+
   it('focuses Cancel on open', async () => {
     const { w } = await open()
     expect(document.activeElement).toBe(w.get('[data-testid="confirm-cancel"]').element)

@@ -238,3 +238,57 @@ describe('SessionCard link', () => {
     expect(w.get('a').attributes('href')).toBe('/session/s1/score/a1')
   })
 })
+
+describe('SessionCard finalized indicator (CU-10)', () => {
+  it('a closed session shows a decorative lock and «Finalizada»', async () => {
+    const { w } = await card({ closed: true })
+    const status = w.get('[data-testid="card-status"]')
+    expect(status.text()).toBe('Finalizada')
+    const lock = status.get('svg')
+    expect(lock.classes()).toContain('card-status-icon')
+    expect(lock.attributes('aria-hidden')).toBe('true')
+    // The face icon is still the first svg and stays untouched.
+    expect(w.get('svg.card-icon').attributes('data-icon')).toBe('wa-full')
+    expect(w.findAll('svg')).toHaveLength(2)
+  })
+
+  it('a closed session ends its accessible name with «, finalizada»', async () => {
+    const s = makeSession()
+    const { w } = await card({
+      closed: true,
+      date: '2026-10-17',
+      ...withEnds(s, ends(['X', '9', 'M'], 20, 3)),
+    })
+    expect(w.get('a').attributes('aria-label')).toBe(
+      '17/10/2026, Club, 18 m, WA 40 cm, 2×10×3, Total 19/600, Promedio 6.33, finalizada',
+    )
+  })
+
+  it('an open session shows no indicator and no «finalizada» in its name', async () => {
+    const { w } = await card()
+    expect(w.find('[data-testid="card-status"]').exists()).toBe(false)
+    expect(w.find('.card-status-icon').exists()).toBe(false)
+    expect(w.text()).not.toContain('Finalizada')
+    expect(w.get('a').attributes('aria-label')).not.toContain('finalizada')
+  })
+
+  it('updates live when the store closes and reopens the session', async () => {
+    const { w } = await card()
+    const store = useSessionsStore()
+    store.setClosed('s1', true)
+    await flushPromises()
+    expect(w.get('[data-testid="card-status"]').text()).toBe('Finalizada')
+    expect(w.get('a').attributes('aria-label')!.endsWith(', finalizada')).toBe(true)
+    store.setClosed('s1', false)
+    await flushPromises()
+    expect(w.find('[data-testid="card-status"]').exists()).toBe(false)
+    expect(w.get('a').attributes('aria-label')).not.toContain('finalizada')
+  })
+
+  it('a closed card still has no nested controls and links to the scoring screen', async () => {
+    const { w } = await card({ closed: true })
+    expect(w.findAll('button, input, select, textarea, [tabindex]')).toHaveLength(0)
+    expect(w.findAll('a')).toHaveLength(1)
+    expect(w.get('a').attributes('href')).toBe('/session/s1/score/a1')
+  })
+})

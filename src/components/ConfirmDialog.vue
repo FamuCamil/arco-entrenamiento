@@ -80,6 +80,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           ref="confirmButton"
           type="button"
           class="button confirm"
+          :class="{ 'is-safe': !state.danger }"
           data-testid="confirm-accept"
           @click="settle(true)"
         >
@@ -151,6 +152,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   border-color: var(--color-danger);
   background: var(--color-danger);
   color: var(--color-accent-contrast);
+}
+
+/* Non-destructive confirmations (danger: false), e.g. finalizing a session that can be reopened. */
+.confirm.is-safe {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
 }
 
 @media (min-width: 40rem) {
