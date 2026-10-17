@@ -406,6 +406,99 @@ describe('deleteEnd', () => {
   })
 })
 
+describe('setClosed (CU-10)', () => {
+  function setup(overrides = {}) {
+    const session = makeSession(overrides)
+    session.archers[0]!.ends[0] = ['X', '9', null]
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeState([session])))
+    return useSessionsStore()
+  }
+
+  it('closing sets closed, bumps updatedAt and persists', async () => {
+    const store = setup()
+    vi.useFakeTimers()
+    vi.setSystemTime(9000)
+    store.setClosed('s1', true)
+    expect(store.getSession('s1')!.closed).toBe(true)
+    expect(store.getSession('s1')!.updatedAt).toBe(9000)
+    await nextTick()
+    expect(stored().sessions[0].closed).toBe(true)
+    expect(stored().sessions[0].updatedAt).toBe(9000)
+  })
+
+  it('reopening sets closed false, bumps updatedAt and persists', async () => {
+    const store = setup({ closed: true })
+    vi.useFakeTimers()
+    vi.setSystemTime(9500)
+    store.setClosed('s1', false)
+    expect(store.getSession('s1')!.closed).toBe(false)
+    expect(store.getSession('s1')!.updatedAt).toBe(9500)
+    await nextTick()
+    expect(stored().sessions[0].closed).toBe(false)
+    expect(stored().sessions[0].updatedAt).toBe(9500)
+  })
+
+  it.each([true, false])(
+    'is a no-op when the session already has closed = %s (updatedAt unchanged, no save)',
+    async (closed) => {
+      const store = setup({ closed })
+      await nextTick()
+      localStorage.removeItem(STORAGE_KEY)
+      const before = JSON.stringify(store.sessions)
+      store.setClosed('s1', closed)
+      expect(store.getSession('s1')!.closed).toBe(closed)
+      expect(store.getSession('s1')!.updatedAt).toBe(1)
+      expect(JSON.stringify(store.sessions)).toBe(before)
+      await nextTick()
+      expect(stored()).toBeNull()
+    },
+  )
+
+  it('is a no-op for an unknown session', async () => {
+    const store = setup()
+    await nextTick()
+    localStorage.removeItem(STORAGE_KEY)
+    const before = JSON.stringify(store.sessions)
+    expect(() => store.setClosed('nope', true)).not.toThrow()
+    expect(JSON.stringify(store.sessions)).toBe(before)
+    await nextTick()
+    expect(stored()).toBeNull()
+  })
+
+  it('keeps the values: closing and reopening never touch the ends', () => {
+    const store = setup()
+    store.setClosed('s1', true)
+    store.setClosed('s1', false)
+    expect(store.getArcher('s1', 'a1')!.ends[0]).toEqual(['X', '9', null])
+  })
+
+  it('blocks setArrow and deleteEnd after closing; both work again after reopening', () => {
+    const store = setup()
+    const ends = () => store.getArcher('s1', 'a1')!.ends
+    store.setClosed('s1', true)
+    store.setArrow('s1', 'a1', 0, 2, '8')
+    store.deleteEnd('s1', 'a1', 0)
+    expect(ends()[0]).toEqual(['X', '9', null])
+    store.setClosed('s1', false)
+    store.setArrow('s1', 'a1', 0, 2, '8')
+    expect(ends()[0]).toEqual(['X', '9', '8'])
+    store.deleteEnd('s1', 'a1', 0)
+    expect(ends()[0]).toEqual([null, null, null])
+  })
+
+  it('a closed session survives a reload (fresh store hydrates closed: true)', async () => {
+    setup().setClosed('s1', true)
+    await nextTick()
+    setActivePinia(createPinia())
+    expect(useSessionsStore().getSession('s1')!.closed).toBe(true)
+  })
+
+  it('old sessions saved with closed: false hydrate open (no migration, AC9)', () => {
+    const store = setup()
+    expect(store.getSession('s1')!.closed).toBe(false)
+  })
+})
+
 describe('persistence watch', () => {
   it('persists profileName changes', async () => {
     const store = useSessionsStore()

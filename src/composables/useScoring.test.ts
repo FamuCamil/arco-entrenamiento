@@ -605,3 +605,91 @@ describe('canDeleteArrow / canDeleteEnd', () => {
     }
   })
 })
+
+describe('closeSession / reopenSession (CU-10)', () => {
+  const partial = (): End[] => [
+    ['X', '9', '8'],
+    ['7', null, null],
+    [null, null, null],
+  ]
+
+  it('closeSession locks the session; select and score become no-ops', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    expect(s.selected.value).toEqual({ row: 1, col: 1 })
+    s.closeSession()
+    expect(s.isLocked.value).toBe(true)
+    expect(useSessionsStore().getSession('s1')!.closed).toBe(true)
+    s.select(0, 0)
+    s.score('5')
+    expect(s.selected.value).toEqual({ row: 1, col: 1 })
+    expect(s.archer.value!.ends).toEqual(partial())
+    expect(s.canDeleteArrow.value).toBe(false)
+    expect(s.canDeleteEnd.value).toBe(false)
+  })
+
+  it('closeSession persists closed: true', async () => {
+    seed(partial())
+    useScoring('s1', 'a1').closeSession()
+    await nextTick()
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).sessions[0].closed).toBe(true)
+  })
+
+  it('reopenSession unlocks and selects the first empty cell, not the previous selection', () => {
+    seed(partial())
+    const s = useScoring('s1', 'a1')
+    s.select(2, 2)
+    s.closeSession()
+    s.reopenSession()
+    expect(s.isLocked.value).toBe(false)
+    expect(useSessionsStore().getSession('s1')!.closed).toBe(false)
+    expect(s.selected.value).toEqual({ row: 1, col: 1 })
+    s.score('6')
+    expect(s.archer.value!.ends[1]).toEqual(['7', '6', null])
+  })
+
+  it('reopenSession on a session hydrated closed selects the first empty cell', () => {
+    seed(partial(), { closed: true })
+    const s = useScoring('s1', 'a1')
+    s.reopenSession()
+    expect(s.isLocked.value).toBe(false)
+    expect(s.selected.value).toEqual({ row: 1, col: 1 })
+  })
+
+  it('reopenSession on a full session selects the last cell', () => {
+    const full: End[] = [
+      ['X', 'X', 'X'],
+      ['9', '9', '9'],
+      ['8', '8', '8'],
+    ]
+    seed(full, { closed: true })
+    const s = useScoring('s1', 'a1')
+    s.reopenSession()
+    expect(s.selected.value).toEqual({ row: 2, col: 2 })
+  })
+
+  it('scoring the last arrow of the session leaves it open (AC6)', () => {
+    seed([
+      ['X', 'X', 'X'],
+      ['9', '9', '9'],
+      ['8', '8', null],
+    ])
+    const s = useScoring('s1', 'a1')
+    s.score('7')
+    expect(s.archer.value!.ends[2]).toEqual(['8', '8', '7'])
+    expect(s.isLocked.value).toBe(false)
+    expect(useSessionsStore().getSession('s1')!.closed).toBe(false)
+  })
+
+  it('are no-ops for an unknown session or archer', () => {
+    seed(partial())
+    const unknownSession = useScoring('nope', 'a1')
+    expect(() => unknownSession.closeSession()).not.toThrow()
+    expect(() => unknownSession.reopenSession()).not.toThrow()
+    const unknownArcher = useScoring('s1', 'nope')
+    unknownArcher.closeSession()
+    unknownArcher.reopenSession()
+    expect(unknownArcher.selected.value).toEqual({ row: 0, col: 0 })
+    expect(useSessionsStore().getSession('s1')!.closed).toBe(false)
+  })
+})

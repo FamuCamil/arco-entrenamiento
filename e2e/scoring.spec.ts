@@ -175,6 +175,14 @@ test('fits 375 px: no horizontal scroll, keypad fully visible with ≥48 px keys
     await expect(key).toHaveAttribute('aria-label', /^Anotar /)
   }
 
+  // CU-10: «Finalizar sesión» fits below the keypad without pushing it off-screen.
+  const finalize = (await page.getByTestId('close-session').boundingBox())!
+  expect(finalize.height).toBeGreaterThanOrEqual(48)
+  expect(finalize.x).toBeGreaterThanOrEqual(0)
+  expect(finalize.y).toBeGreaterThanOrEqual(0)
+  expect(finalize.x + finalize.width).toBeLessThanOrEqual(viewport.width)
+  expect(finalize.y + finalize.height).toBeLessThanOrEqual(viewport.height)
+
   // Safe areas: the page opts into viewport-fit=cover and the layout pads with env(safe-area-inset-*).
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
     'content',
@@ -342,14 +350,19 @@ test('cells are ≥48 px tall, named, reachable with Tab and selectable with Ent
   expect(problems).toEqual([])
 })
 
-test('a closed session: tapping a cell changes neither selection nor value', async ({ page }) => {
+test('a closed session: no cell is selected and tapping a cell changes nothing', async ({
+  page,
+}) => {
   const problems = trackConsole(page)
   const url = await seed(page, { closed: true, filledRows: 1 })
   await page.goto(`./${url}`)
-  await expectSelected(page, 1, 0)
+  await expect(page.getByRole('status')).toHaveText('Sesión finalizada — solo lectura')
+  // CU-10 AC4: read-only shows no selected cell.
+  await expect(page.locator('[aria-current]')).toHaveCount(0)
+  await expect(page.locator('.score-cell.is-selected')).toHaveCount(0)
   await expect(page.locator('table button')).toHaveCount(0)
   await cell(page, 0, 1).click()
-  await expectSelected(page, 1, 0)
+  await expect(page.locator('[aria-current]')).toHaveCount(0)
   await expect(cell(page, 0, 1)).toHaveText('9')
   const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), STORAGE_KEY)
   expect(stored.sessions[0].archers[0].ends[0]).toEqual(['X', '9', '8'])
