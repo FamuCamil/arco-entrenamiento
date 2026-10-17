@@ -17,4 +17,4 @@ Statuses:
 | 05 | [use-cases/05-totales-en-vivo.md](use-cases/05-totales-en-vivo.md) | CU-07 Totales en vivo | done | 2026-10-15 |
 | 06 | [use-cases/06-instalar-en-movil.md](use-cases/06-instalar-en-movil.md) | CU-14 Instalar en el móvil | done | 2026-10-16 |
 | 07 | [use-cases/07-funcionar-sin-conexion.md](use-cases/07-funcionar-sin-conexion.md) | CU-13 Funcionar sin conexión | done | 2026-10-16 |
-| 08 | [use-cases/08-crear-sesion.md](use-cases/08-crear-sesion.md) | CU-01 + CU-02 Crear sesión (plantilla o personalizada) | in-progress | 2026-10-17 |
+| 08 | [use-cases/08-crear-sesion.md](use-cases/08-crear-sesion.md) | CU-01 + CU-02 Crear sesión (plantilla o personalizada) | done | 2026-10-17 |
