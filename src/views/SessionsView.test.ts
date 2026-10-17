@@ -206,6 +206,60 @@ describe('SessionsView session cards', () => {
   })
 })
 
+describe('SessionsView focus after deleting a session (CU-12)', () => {
+  /** Lands on home the way EditSessionView does after a delete: a replace with the given state. */
+  async function arriveHome(state?: { sessionDeleted: boolean }) {
+    const stub = { template: '<div />' }
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', name: 'sessions', component: SessionsView },
+        { path: '/session/:id/edit', name: 'edit-session', component: stub },
+        { path: '/new', name: 'new-session', component: stub },
+        { path: '/session/:id/score/:archerId', name: 'scoring', component: stub },
+      ],
+    })
+    await router.push('/session/s1/edit')
+    await router.replace({ name: 'sessions', ...(state && { state }) })
+    const w = mount(SessionsView, { global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+    return w
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('focuses the «Sesiones» heading when arriving with sessionDeleted', async () => {
+    seed([makeSession({ id: 'other' })])
+    const w = await arriveHome({ sessionDeleted: true })
+    const heading = w.get('h2')
+    expect(heading.text()).toBe('Sesiones')
+    expect(heading.attributes('tabindex')).toBe('-1')
+    expect(document.activeElement).toBe(heading.element)
+    expect(cards(w)).toHaveLength(1)
+    w.unmount()
+  })
+
+  it('after deleting the last session: the empty text, heading focused', async () => {
+    const w = await arriveHome({ sessionDeleted: true })
+    expect(w.text()).toContain('Todavía no hay sesiones de entrenamiento.')
+    expect(document.activeElement).toBe(w.get('h2').element)
+    w.unmount()
+  })
+
+  it.each([
+    ['without state', undefined],
+    ['with sessionDeleted false', { sessionDeleted: false }],
+  ])('does not move focus on a plain arrival (%s)', async (_, state) => {
+    seed([makeSession()])
+    const w = await arriveHome(state)
+    expect(document.activeElement).not.toBe(w.get('h2').element)
+    expect(document.activeElement).toBe(document.body)
+    w.unmount()
+  })
+})
+
 describe('SessionsView «Copia de seguridad» (CU-11)', () => {
   type Wrapper = ReturnType<typeof mount>
   const mounted: Wrapper[] = []

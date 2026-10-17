@@ -214,6 +214,12 @@ describe('NewSessionView templates', () => {
 })
 
 describe('NewSessionView form', () => {
+  it('has no «Borrar sesión» button (CU-12 is edit-only)', async () => {
+    const { w } = await view()
+    expect(w.find('[data-testid="delete-session"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('Borrar sesión')
+  })
+
   it('every control has a visible label bound with for/id', async () => {
     const { w } = await view()
     const labels = Object.fromEntries(
