@@ -109,7 +109,7 @@ test('creates «Aire libre 70 m», scores an arrow and reopens it from the home 
   await page.getByRole('button', { name: 'Anotar X', exact: true }).click()
   await expect(cell(page, 0, 0)).toHaveText('X')
 
-  // Back home: the session is listed as «DD/MM/YYYY · Sin lugar» and reopens.
+  // Back home: the session's card reads «DD/MM/YYYY · Sin lugar» and reopens it.
   await page.goto('./')
   const today = await page.evaluate(() => {
     const d = new Date()
@@ -118,7 +118,8 @@ test('creates «Aire libre 70 m», scores an arrow and reopens it from the home 
     return `${dd}/${mm}/${d.getFullYear()}`
   })
   const rows = page.getByRole('list', { name: 'Sesiones guardadas' }).getByRole('link')
-  await expect(rows).toHaveText([`${today} · Sin lugar`])
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first().getByTestId('card-date-place')).toHaveText(`${today} · Sin lugar`)
   await rows.first().click()
   await expect(page).toHaveURL(scoringUrl)
   await expect(cell(page, 0, 0)).toHaveText('X')

@@ -47,8 +47,14 @@ async function view() {
   return { w, router }
 }
 
-function rows(w: Awaited<ReturnType<typeof view>>['w']) {
-  return w.findAll('ul[aria-label="Sesiones guardadas"] li a')
+function cards(w: Awaited<ReturnType<typeof view>>['w']) {
+  return w.findAll('ul[aria-label="Sesiones guardadas"] li a.session-card')
+}
+
+function datePlaces(w: Awaited<ReturnType<typeof view>>['w']) {
+  return w
+    .findAll('ul[aria-label="Sesiones guardadas"] [data-testid="card-date-place"]')
+    .map((el) => el.element.textContent)
 }
 
 describe('SessionsView «Nueva sesión»', () => {
@@ -68,23 +74,36 @@ describe('SessionsView «Nueva sesión»', () => {
     expect(router.currentRoute.value.path).toBe('/new')
     expect(useSessionsStore().sessions).toHaveLength(0)
   })
+
+  it('stays above the cards and is the only button', async () => {
+    seed([makeSession({ id: 'a', createdAt: 2 }), makeSession({ id: 'b', createdAt: 1 })])
+    const { w } = await view()
+    expect(w.findAll('button').map((b) => b.text())).toEqual(['Nueva sesión'])
+    const button = w.get('button').element
+    const list = w.get('ul').element
+    expect(button.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
 
-describe('SessionsView provisional list', () => {
+describe('SessionsView session cards', () => {
   it('without sessions: the empty text and no list', async () => {
     const { w } = await view()
     expect(w.get('.empty').text()).toBe('Todavía no hay sesiones de entrenamiento.')
     expect(w.find('ul').exists()).toBe(false)
+    expect(w.find('.session-card').exists()).toBe(false)
   })
 
-  it('with sessions: no empty text', async () => {
+  it('with sessions: one card per session and no empty text', async () => {
     seed([makeSession()])
     const { w } = await view()
     expect(w.find('.empty').exists()).toBe(false)
-    expect(rows(w)).toHaveLength(1)
+    expect(w.findAll('ul li')).toHaveLength(1)
+    expect(cards(w)).toHaveLength(1)
+    expect(w.get('[data-testid="card-structure"]').text()).toBe('2×10×3')
+    expect(w.get('.card-total').text()).toBe('Total 0/600')
   })
 
-  it('lists every session newest first: date descending, then createdAt descending', async () => {
+  it('orders cards newest first: date descending, then createdAt descending', async () => {
     seed([
       makeSession({ id: 'a', date: '2026-01-10', location: 'Enero', createdAt: 9 }),
       makeSession({ id: 'b', date: '2026-10-15', location: 'Temprano', createdAt: 1 }),
@@ -92,12 +111,15 @@ describe('SessionsView provisional list', () => {
       makeSession({ id: 'd', date: '2025-12-31', location: 'Año pasado', createdAt: 99 }),
     ])
     const { w } = await view()
-    expect(rows(w).map((r) => r.text())).toEqual([
+    expect(datePlaces(w)).toEqual([
       '15/10/2026 · Tarde',
       '15/10/2026 · Temprano',
       '10/01/2026 · Enero',
       '31/12/2025 · Año pasado',
     ])
+    expect(cards(w).map((c) => c.attributes('href'))).toEqual(
+      ['c', 'b', 'a', 'd'].map((id) => `/session/${id}/score/a1`),
+    )
   })
 
   it('shows «Sin lugar» for an empty or whitespace-only location, and trims the location', async () => {
@@ -107,20 +129,20 @@ describe('SessionsView provisional list', () => {
       makeSession({ id: 'c', location: '  Club  ', createdAt: 1 }),
     ])
     const { w } = await view()
-    expect(rows(w).map((r) => r.text())).toEqual([
+    expect(datePlaces(w)).toEqual([
       '15/10/2026 · Sin lugar',
       '15/10/2026 · Sin lugar',
       '15/10/2026 · Club',
     ])
   })
 
-  it('tapping a row opens the scoring screen of that session with its first archer', async () => {
+  it('tapping a card opens the scoring screen of that session with its first archer', async () => {
     const other = makeSession({ id: 's2', date: '2026-01-01' })
     other.archers[0]!.id = 'a2'
     other.archers.push({ ...other.archers[0]!, id: 'a3', position: 'B' })
     seed([makeSession(), other])
     const { w, router } = await view()
-    const link = rows(w)[1]!
+    const link = cards(w)[1]!
     expect(link.attributes('href')).toBe('/session/s2/score/a2')
     await link.trigger('click')
     await flushPromises()
@@ -128,22 +150,30 @@ describe('SessionsView provisional list', () => {
     expect(router.currentRoute.value.params).toEqual({ id: 's2', archerId: 'a2' })
   })
 
-  it('lists a legacy «Sesión de prueba» session as an ordinary row (no migration)', async () => {
+  it('lists a legacy «Sesión de prueba» session as an ordinary card (no migration)', async () => {
     seed([makeSession({ id: 'legacy', location: 'Sesión de prueba' })])
     const { w } = await view()
-    expect(rows(w).map((r) => r.text())).toEqual(['15/10/2026 · Sesión de prueba'])
-    expect(rows(w)[0]!.attributes('href')).toBe('/session/legacy/score/a1')
+    expect(datePlaces(w)).toEqual(['15/10/2026 · Sesión de prueba'])
+    expect(cards(w)[0]!.attributes('href')).toBe('/session/legacy/score/a1')
     expect(w.findAll('button').map((b) => b.text())).toEqual(['Nueva sesión'])
   })
 
-  it('a session without archers gets no link (defensive) and does not break the list', async () => {
+  it('omits a session without archers (defensive) without breaking the list', async () => {
     seed([makeSession({ id: 'ok', createdAt: 2 })])
     const store = useSessionsStore()
     store.sessions.push({ ...makeSession({ id: 'empty', createdAt: 1 }), archers: [] })
     const { w } = await view()
-    expect(w.findAll('ul li')).toHaveLength(2)
-    expect(rows(w)).toHaveLength(1)
-    expect(rows(w)[0]!.attributes('href')).toBe('/session/ok/score/a1')
+    expect(w.findAll('ul li')).toHaveLength(1)
+    expect(cards(w)).toHaveLength(1)
+    expect(cards(w)[0]!.attributes('href')).toBe('/session/ok/score/a1')
+  })
+
+  it('shows the empty text when the only session has no archers', async () => {
+    const store = useSessionsStore()
+    store.sessions.push({ ...makeSession({ id: 'empty' }), archers: [] })
+    const { w } = await view()
+    expect(w.find('ul').exists()).toBe(false)
+    expect(w.get('.empty').text()).toBe('Todavía no hay sesiones de entrenamiento.')
   })
 
   it('updates when a session is created', async () => {
@@ -158,7 +188,13 @@ describe('SessionsView provisional list', () => {
       arrowsPerEnd: 3,
     })
     await flushPromises()
-    expect(rows(w).map((r) => r.text())).toEqual(['17/10/2026 · Sin lugar'])
+    expect(datePlaces(w)).toEqual(['17/10/2026 · Sin lugar'])
     expect(w.find('.empty').exists()).toBe(false)
+  })
+
+  it('no TODO(CU-09) provisional list remains', async () => {
+    const source = await import('./SessionsView.vue?raw')
+    expect(source.default).not.toContain('TODO(CU-09)')
+    expect(source.default).not.toContain('session-link')
   })
 })
